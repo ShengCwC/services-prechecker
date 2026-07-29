@@ -52,6 +52,7 @@ $sourceFiles = Get-ChildItem -LiteralPath (Join-Path $projectRoot "src\ServicesP
 $references = @(
     (Join-Path $frameworkDirectory "System.dll"),
     (Join-Path $frameworkDirectory "System.Core.dll"),
+    (Join-Path $frameworkDirectory "System.Management.dll"),
     (Join-Path $frameworkDirectory "System.ServiceProcess.dll"),
     (Join-Path $frameworkDirectory "WPF\WindowsBase.dll"),
     (Join-Path $frameworkDirectory "WPF\PresentationCore.dll"),

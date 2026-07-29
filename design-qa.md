@@ -1,4 +1,4 @@
-# Product Design QA — v1.2.1
+# Product Design QA — v1.3.0
 
 ## Evidence
 
@@ -11,6 +11,8 @@
 - Logo comparison: `D:\Data\Docs\services-prechecker\qa\logo-comparison-v1.2.png`
 - New icon scale strip: `D:\Data\Docs\services-prechecker\qa\app-logo-small-sizes.png`
 - Windows Shell icon extraction: `D:\Data\Docs\services-prechecker\qa\shell-icon-v1.2.1-final.png`
+- HWID footer at 1140 × 760: `D:\Data\Docs\services-prechecker\qa\implementation-v1.3.0-hwid-1140x760.png`
+- HWID footer at minimum 980 × 700: `D:\Data\Docs\services-prechecker\qa\implementation-v1.3.0-hwid-980x700.png`
 
 The source visual is 1536 × 1024 pixels. The rendered WPF window is 1710 × 1140 pixels for a 1140 × 760 logical-pixel window at 150% Windows display scaling. The implementation was aspect-preservingly normalized to 1536 × 1024 before the side-by-side comparison. Both views represent the normal service-scan state in the same dark theme.
 
@@ -25,6 +27,8 @@ No actionable P0, P1, or P2 differences remain.
 - Copy and content: the exact required sentence appears in the hero with “重启系统” emphasized. Pending and modal states continue to explain that the current boot session is invalid and only later checks after restart are effective.
 - Icons: the former thin nested-square icon was replaced with a bold standalone double-S forensic-gate mark. The 16, 20, 24, 32, 48, and 64-pixel previews preserve a recognizable silhouette and amber state accent.
 - Responsiveness and accessibility: the intended 1140 × 760 viewport has no overlap, clipping, or hidden controls. The minimum window size remains 980 × 700. Restart meaning is communicated through text as well as color, and all primary actions remain keyboard-focusable and exposed through Windows UI Automation.
+- HWID integration: the complete versioned identifier is geometrically centered in the existing 44-pixel footer between the ellipsized local-status message and right-aligned version label. “点击复制” remains plain text with no detached panel or copy button. At both tested sizes the identifier is complete, readable, and does not move adjacent content.
+- HWID states and accessibility: the text exposes a Button/Invoke pattern, keyboard focus, visible focus treatment, hand cursor, tooltip, and automation name/help text. Success, failure, and restoration use the same footprint, so feedback does not cause layout shift.
 
 Focused comparison was required because the Banner composition, logo sharpness, small forensic labels, and restart copy were too small to judge reliably in the full-view comparison. The full hero crop and icon scale strip were inspected separately.
 
@@ -44,6 +48,11 @@ Focused comparison was required because the Banner composition, logo sharpness, 
 - Custom maximize/restore control: passed.
 - Custom close control: passed.
 - Windows Shell extraction of the signed, versioned EXE icon: passed.
+- Deterministic HWID vectors, source priority, normalization, placeholder rejection, standard 128-bit Crockford encoding, and exact public format: passed.
+- WMI exception/timeout injection, four-second total budget, pre-read MachineGuid fallback, and abandoned-task fault observation: passed.
+- Two independent application starts returned the same locally generated HWID: passed.
+- HWID control format, full untruncated text, UI Automation exposure, keyboard focusability, and feedback restoration: passed.
+- Clipboard-denied state: passed; the control retried three times, displayed “复制失败 · 点击重试”, and restored the original text. The Codex desktop test host denies direct system-clipboard access, so a successful OS clipboard round-trip could not be dynamically read back in this session. The success path writes only `hardwareIdValue` through `Clipboard.SetText`, and the final code review confirmed that no label text is included.
 - Actual service mutation was not invoked during design QA to avoid changing the test computer’s service policy. The elevated enable path compiles and uses the verified restart marker, notice, pending states, and modal.
 
 ## Follow-up Polish

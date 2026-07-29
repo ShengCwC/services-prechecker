@@ -31,6 +31,7 @@ namespace UndefinedSS.ServicesPrechecker
         private static readonly Color AccentColor = Color.FromRgb(194, 184, 166);
         private static readonly Color AccentDarkColor = Color.FromRgb(30, 29, 27);
         private static readonly Color RestartColor = Color.FromRgb(231, 158, 76);
+        private static readonly string ApplicationVersion = GetApplicationVersion();
 
         private readonly bool autoEnable;
         private readonly Border windowFrame;
@@ -38,6 +39,8 @@ namespace UndefinedSS.ServicesPrechecker
         private readonly TextBlock summaryText;
         private readonly TextBlock metadataText;
         private readonly TextBlock activityText;
+        private readonly Button hardwareIdButton;
+        private readonly TextBlock hardwareIdText;
         private readonly TextBlock restartNoticeTitle;
         private readonly TextBlock restartNoticeBody;
         private readonly Border restartNotice;
@@ -49,6 +52,8 @@ namespace UndefinedSS.ServicesPrechecker
         private readonly Button modalConfirmButton;
         private bool isBusy;
         private bool restartPending;
+        private string hardwareIdValue;
+        private int hardwareIdFeedbackGeneration;
 
         public MainWindow(bool autoEnable)
         {
@@ -202,24 +207,71 @@ namespace UndefinedSS.ServicesPrechecker
             Grid footerLayout = new Grid();
             footerLayout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             footerLayout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            footerLayout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             activityText = new TextBlock
             {
-                Text = "所有检查均在本机完成，不会上传任何数据。",
+                Text = "服务检查与 HWID 生成均在本机完成，不会上传任何数据。",
                 VerticalAlignment = VerticalAlignment.Center,
                 Foreground = new SolidColorBrush(SecondaryTextColor),
-                FontSize = 10
+                FontSize = 10,
+                TextTrimming = TextTrimming.CharacterEllipsis
             };
+            hardwareIdText = new TextBlock
+            {
+                Text = "点击复制 · HWID  正在读取…",
+                FontFamily = new FontFamily("Consolas"),
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(SecondaryTextColor),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            hardwareIdButton = new Button
+            {
+                Content = hardwareIdText,
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(4, 2, 4, 2),
+                Margin = new Thickness(18, 0, 18, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Cursor = Cursors.Arrow,
+                IsEnabled = false,
+                Template = BuildFooterTextButtonTemplate(),
+                ToolTip = "正在生成 HWID…"
+            };
+            AutomationProperties.SetName(hardwareIdButton, "HWID 正在读取");
+            ToolTipService.SetShowOnDisabled(hardwareIdButton, true);
+            hardwareIdButton.Click += HandleHardwareIdClick;
+            hardwareIdButton.KeyDown += HandleHardwareIdKeyDown;
+            hardwareIdButton.MouseEnter +=
+                delegate
+                {
+                    if (hardwareIdButton.IsEnabled)
+                    {
+                        hardwareIdText.Foreground = new SolidColorBrush(PrimaryTextColor);
+                    }
+                };
+            hardwareIdButton.MouseLeave +=
+                delegate
+                {
+                    if (hardwareIdButton.IsEnabled)
+                    {
+                        hardwareIdText.Foreground = new SolidColorBrush(AccentColor);
+                    }
+                };
             TextBlock versionText = new TextBlock
             {
-                Text = "v1.2.1  ·  FORENSICS READINESS",
+                Text = "v" + ApplicationVersion + "  ·  FORENSICS READINESS",
                 VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Right,
                 Foreground = new SolidColorBrush(AccentColor),
                 FontFamily = new FontFamily("Segoe UI"),
                 FontSize = 9,
                 FontWeight = FontWeights.SemiBold
             };
             footerLayout.Children.Add(activityText);
-            Grid.SetColumn(versionText, 1);
+            Grid.SetColumn(hardwareIdButton, 1);
+            footerLayout.Children.Add(hardwareIdButton);
+            Grid.SetColumn(versionText, 2);
             footerLayout.Children.Add(versionText);
             footer.Child = footerLayout;
             Grid.SetRow(footer, 3);
@@ -372,7 +424,7 @@ namespace UndefinedSS.ServicesPrechecker
             };
             edition.Child = new TextBlock
             {
-                Text = "WINDOWS  ·  1.2.1",
+                Text = "WINDOWS  ·  " + ApplicationVersion,
                 FontFamily = new FontFamily("Segoe UI"),
                 FontSize = 8,
                 FontWeight = FontWeights.SemiBold,
@@ -689,6 +741,7 @@ namespace UndefinedSS.ServicesPrechecker
 
         private async void HandleLoaded(object sender, RoutedEventArgs e)
         {
+            Task hardwareIdLoadTask = LoadHardwareIdAsync();
             await RefreshSnapshots();
             if (autoEnable)
             {
@@ -698,6 +751,142 @@ namespace UndefinedSS.ServicesPrechecker
             {
                 ShowRestartModal(-1);
             }
+
+            await hardwareIdLoadTask;
+        }
+
+        private async Task LoadHardwareIdAsync()
+        {
+            Task<HardwareIdResult> readTask;
+            try
+            {
+                readTask = HardwareIdProvider.GetHardwareIdAsync();
+            }
+            catch
+            {
+                SetHardwareIdUnavailable();
+                return;
+            }
+
+            HardwareIdResult result;
+            try
+            {
+                result = await readTask;
+            }
+            catch
+            {
+                SetHardwareIdUnavailable();
+                return;
+            }
+
+            if (result == null || !result.IsAvailable || string.IsNullOrWhiteSpace(result.Value))
+            {
+                SetHardwareIdUnavailable();
+                return;
+            }
+
+            hardwareIdValue = result.Value;
+            hardwareIdButton.IsEnabled = true;
+            hardwareIdButton.Cursor = Cursors.Hand;
+            RestoreHardwareIdText();
+        }
+
+        private void SetHardwareIdUnavailable()
+        {
+            hardwareIdValue = null;
+            hardwareIdButton.IsEnabled = false;
+            hardwareIdButton.Cursor = Cursors.Arrow;
+            hardwareIdButton.ToolTip = "未能读取稳定的设备标识";
+            hardwareIdText.Text = "HWID  无法读取";
+            hardwareIdText.Foreground = new SolidColorBrush(SecondaryTextColor);
+            AutomationProperties.SetName(hardwareIdButton, "HWID 无法读取");
+            AutomationProperties.SetHelpText(
+                hardwareIdButton,
+                "未能读取稳定的设备标识");
+        }
+
+        private void RestoreHardwareIdText()
+        {
+            if (string.IsNullOrWhiteSpace(hardwareIdValue))
+            {
+                return;
+            }
+
+            hardwareIdText.Text = "点击复制 · HWID  " + hardwareIdValue;
+            hardwareIdText.Foreground = new SolidColorBrush(AccentColor);
+            hardwareIdButton.ToolTip = "点击复制 HWID";
+            AutomationProperties.SetName(
+                hardwareIdButton,
+                "HWID " + hardwareIdValue + "，点击复制");
+            AutomationProperties.SetHelpText(
+                hardwareIdButton,
+                "点击后将 HWID 复制到剪贴板");
+        }
+
+        private async void HandleHardwareIdClick(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(hardwareIdValue))
+            {
+                return;
+            }
+
+            bool copied = false;
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                bool shouldRetry = false;
+                try
+                {
+                    Clipboard.SetText(hardwareIdValue);
+                    copied = true;
+                    break;
+                }
+                catch (ExternalException)
+                {
+                    shouldRetry = true;
+                }
+
+                if (shouldRetry && attempt < 2)
+                {
+                    await Task.Delay(60);
+                }
+            }
+
+            int feedbackGeneration = ++hardwareIdFeedbackGeneration;
+            if (copied)
+            {
+                hardwareIdText.Text = "已复制 · HWID  " + hardwareIdValue;
+                hardwareIdText.Foreground = new SolidColorBrush(
+                    Color.FromRgb(113, 202, 146));
+                AutomationProperties.SetName(
+                    hardwareIdButton,
+                    "HWID 已复制");
+            }
+            else
+            {
+                hardwareIdText.Text = "复制失败 · 点击重试";
+                hardwareIdText.Foreground = new SolidColorBrush(RestartColor);
+                AutomationProperties.SetName(
+                    hardwareIdButton,
+                    "HWID 复制失败，点击重试");
+            }
+
+            await Task.Delay(copied ? 1500 : 2000);
+            if (feedbackGeneration == hardwareIdFeedbackGeneration)
+            {
+                RestoreHardwareIdText();
+            }
+        }
+
+        private void HandleHardwareIdKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.Enter || !hardwareIdButton.IsEnabled)
+            {
+                return;
+            }
+
+            e.Handled = true;
+            hardwareIdButton.RaiseEvent(
+                new RoutedEventArgs(Button.ClickEvent, hardwareIdButton));
         }
 
         private async void HandleRefreshClick(object sender, RoutedEventArgs e)
@@ -761,7 +950,7 @@ namespace UndefinedSS.ServicesPrechecker
             RenderSnapshots(snapshots);
             string completedMessage = restartPending
                 ? "服务设置已改变：请重启系统；当前启动周期的查端仍按异常处理。"
-                : "检查完成。所有检查均在本机完成，不会上传任何数据。";
+                : "检查完成。服务检查与 HWID 均在本机生成，不会上传任何数据。";
             SetBusy(false, completedMessage);
         }
 
@@ -1135,6 +1324,43 @@ namespace UndefinedSS.ServicesPrechecker
             return template;
         }
 
+        private static ControlTemplate BuildFooterTextButtonTemplate()
+        {
+            FrameworkElementFactory border = new FrameworkElementFactory(typeof(Border));
+            border.Name = "focusBorder";
+            border.SetValue(Border.BackgroundProperty, Brushes.Transparent);
+            border.SetValue(Border.BorderBrushProperty, Brushes.Transparent);
+            border.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(3));
+            border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Button.PaddingProperty));
+
+            FrameworkElementFactory presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+            presenter.SetValue(
+                ContentPresenter.HorizontalAlignmentProperty,
+                HorizontalAlignment.Center);
+            presenter.SetValue(
+                ContentPresenter.VerticalAlignmentProperty,
+                VerticalAlignment.Center);
+            border.AppendChild(presenter);
+
+            ControlTemplate template = new ControlTemplate(typeof(Button));
+            template.VisualTree = border;
+
+            Trigger focusTrigger = new Trigger
+            {
+                Property = Button.IsKeyboardFocusedProperty,
+                Value = true
+            };
+            focusTrigger.Setters.Add(
+                new Setter(
+                    Border.BorderBrushProperty,
+                    new SolidColorBrush(Color.FromRgb(111, 101, 87)),
+                    "focusBorder"));
+            template.Triggers.Add(focusTrigger);
+
+            return template;
+        }
+
         private static ControlTemplate BuildCircleButtonTemplate()
         {
             FrameworkElementFactory ellipse = new FrameworkElementFactory(typeof(Ellipse));
@@ -1240,6 +1466,24 @@ namespace UndefinedSS.ServicesPrechecker
                 default:
                     return Color.FromRgb(226, 166, 91);
             }
+        }
+
+        private static string GetApplicationVersion()
+        {
+            Assembly assembly = Assembly.GetExecutingAssembly();
+            AssemblyInformationalVersionAttribute attribute =
+                (AssemblyInformationalVersionAttribute)Attribute.GetCustomAttribute(
+                    assembly,
+                    typeof(AssemblyInformationalVersionAttribute));
+
+            if (attribute != null &&
+                !string.IsNullOrWhiteSpace(attribute.InformationalVersion))
+            {
+                return attribute.InformationalVersion;
+            }
+
+            Version version = assembly.GetName().Version;
+            return version == null ? "0.0.0" : version.ToString(3);
         }
 
         private static ImageSource LoadEmbeddedImage(string resourceName)
