@@ -6,13 +6,16 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
+using System.Windows.Shell;
 
 namespace UndefinedSS.ServicesPrechecker
 {
@@ -20,38 +23,62 @@ namespace UndefinedSS.ServicesPrechecker
     {
         private static readonly Color BackgroundColor = Color.FromRgb(7, 8, 8);
         private static readonly Color PanelColor = Color.FromRgb(14, 15, 15);
-        private static readonly Color PanelRaisedColor = Color.FromRgb(19, 19, 18);
+        private static readonly Color PanelRaisedColor = Color.FromRgb(19, 20, 19);
+        private static readonly Color ChromeColor = Color.FromRgb(16, 18, 19);
         private static readonly Color BorderColor = Color.FromRgb(48, 45, 41);
         private static readonly Color PrimaryTextColor = Color.FromRgb(239, 237, 232);
         private static readonly Color SecondaryTextColor = Color.FromRgb(162, 157, 148);
-        private static readonly Color AccentColor = Color.FromRgb(190, 180, 162);
+        private static readonly Color AccentColor = Color.FromRgb(194, 184, 166);
         private static readonly Color AccentDarkColor = Color.FromRgb(30, 29, 27);
+        private static readonly Color RestartColor = Color.FromRgb(231, 158, 76);
 
         private readonly bool autoEnable;
+        private readonly Border windowFrame;
         private readonly UniformGrid servicesGrid;
         private readonly TextBlock summaryText;
         private readonly TextBlock metadataText;
         private readonly TextBlock activityText;
+        private readonly TextBlock restartNoticeTitle;
+        private readonly TextBlock restartNoticeBody;
+        private readonly Border restartNotice;
         private readonly Button enableButton;
         private readonly Button refreshButton;
+        private readonly Grid modalLayer;
+        private readonly TextBlock modalTitle;
+        private readonly TextBlock modalBody;
+        private readonly Button modalConfirmButton;
         private bool isBusy;
+        private bool restartPending;
 
         public MainWindow(bool autoEnable)
         {
             this.autoEnable = autoEnable;
+            restartPending = RestartRequirement.IsPendingForCurrentBoot();
 
             Title = "Undefined SS · Services Prechecker";
-            Width = 1120;
-            Height = 790;
-            MinWidth = 940;
+            Width = 1140;
+            Height = 760;
+            MinWidth = 980;
             MinHeight = 700;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            WindowStyle = WindowStyle.None;
+            ResizeMode = ResizeMode.CanResize;
             Background = new SolidColorBrush(BackgroundColor);
             Foreground = new SolidColorBrush(PrimaryTextColor);
             FontFamily = new FontFamily("Microsoft YaHei UI");
             FontSize = 13;
             UseLayoutRounding = true;
             SnapsToDevicePixels = true;
+
+            WindowChrome chrome = new WindowChrome
+            {
+                CaptionHeight = 44,
+                ResizeBorderThickness = new Thickness(6),
+                GlassFrameThickness = new Thickness(0),
+                CornerRadius = new CornerRadius(11),
+                UseAeroCaptionButtons = false
+            };
+            WindowChrome.SetWindowChrome(this, chrome);
 
             ImageSource icon = LoadEmbeddedImage("UndefinedSS.ServicesPrechecker.Assets.app.ico");
             if (icon != null)
@@ -60,44 +87,65 @@ namespace UndefinedSS.ServicesPrechecker
             }
 
             SourceInitialized += HandleSourceInitialized;
+            StateChanged += HandleWindowStateChanged;
+            PreviewKeyDown += HandlePreviewKeyDown;
 
             Grid root = new Grid();
-            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(238) });
-            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(48) });
             Content = root;
 
+            windowFrame = new Border
+            {
+                Background = new SolidColorBrush(BackgroundColor),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(63, 59, 53)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(11),
+                ClipToBounds = true
+            };
+            root.Children.Add(windowFrame);
+
+            Grid layout = new Grid();
+            layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(44) });
+            layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(184) });
+            layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(44) });
+            windowFrame.Child = layout;
+
+            FrameworkElement titleBar = BuildTitleBar();
+            Grid.SetRow(titleBar, 0);
+            layout.Children.Add(titleBar);
+
             FrameworkElement hero = BuildHero();
-            Grid.SetRow(hero, 0);
-            root.Children.Add(hero);
+            Grid.SetRow(hero, 1);
+            layout.Children.Add(hero);
 
             Grid content = new Grid();
-            content.Margin = new Thickness(24, 18, 24, 16);
+            content.Margin = new Thickness(22, 12, 22, 12);
             content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(14) });
+            content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(8) });
+            content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) });
             content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            Grid.SetRow(content, 1);
-            root.Children.Add(content);
+            Grid.SetRow(content, 2);
+            layout.Children.Add(content);
 
             Grid toolbar = new Grid();
             toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            Grid.SetRow(toolbar, 0);
             content.Children.Add(toolbar);
 
-            StackPanel summaryPanel = new StackPanel();
+            StackPanel summaryPanel = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             summaryText = new TextBlock
             {
                 Text = "正在检查系统服务…",
-                FontSize = 20,
+                FontSize = 19,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = new SolidColorBrush(PrimaryTextColor)
             };
             metadataText = new TextBlock
             {
                 Text = "读取本机服务控制管理器",
-                Margin = new Thickness(0, 6, 0, 0),
-                FontSize = 12,
+                Margin = new Thickness(0, 5, 0, 0),
+                FontSize = 11,
                 Foreground = new SolidColorBrush(SecondaryTextColor)
             };
             summaryPanel.Children.Add(summaryText);
@@ -110,21 +158,38 @@ namespace UndefinedSS.ServicesPrechecker
                 VerticalAlignment = VerticalAlignment.Center
             };
             refreshButton = CreateButton("重新检测", false);
-            refreshButton.Margin = new Thickness(0, 0, 10, 0);
+            refreshButton.Margin = new Thickness(0, 0, 9, 0);
             refreshButton.Click += HandleRefreshClick;
-            enableButton = CreateButton("一键启用全部服务", true);
+            enableButton = CreateButton("一键启用全部系统服务", true);
             enableButton.Click += HandleEnableClick;
             actions.Children.Add(refreshButton);
             actions.Children.Add(enableButton);
             Grid.SetColumn(actions, 1);
             toolbar.Children.Add(actions);
 
+            restartNoticeTitle = new TextBlock
+            {
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(RestartColor)
+            };
+            restartNoticeBody = new TextBlock
+            {
+                FontSize = 11,
+                Margin = new Thickness(0, 3, 0, 0),
+                Foreground = new SolidColorBrush(Color.FromRgb(190, 183, 172)),
+                TextWrapping = TextWrapping.Wrap
+            };
+            restartNotice = BuildRestartNotice();
+            Grid.SetRow(restartNotice, 2);
+            content.Children.Add(restartNotice);
+
             servicesGrid = new UniformGrid
             {
                 Columns = 4,
                 Rows = 2
             };
-            Grid.SetRow(servicesGrid, 2);
+            Grid.SetRow(servicesGrid, 4);
             content.Children.Add(servicesGrid);
 
             Border footer = new Border
@@ -132,7 +197,7 @@ namespace UndefinedSS.ServicesPrechecker
                 Background = new SolidColorBrush(Color.FromRgb(10, 11, 11)),
                 BorderBrush = new SolidColorBrush(BorderColor),
                 BorderThickness = new Thickness(0, 1, 0, 0),
-                Padding = new Thickness(24, 0, 24, 0)
+                Padding = new Thickness(22, 0, 22, 0)
             };
             Grid footerLayout = new Grid();
             footerLayout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -142,117 +207,379 @@ namespace UndefinedSS.ServicesPrechecker
                 Text = "所有检查均在本机完成，不会上传任何数据。",
                 VerticalAlignment = VerticalAlignment.Center,
                 Foreground = new SolidColorBrush(SecondaryTextColor),
-                FontSize = 11
+                FontSize = 10
             };
             TextBlock versionText = new TextBlock
             {
-                Text = "v1.0.0  ·  FORENSICS READINESS",
+                Text = "v1.1.0  ·  FORENSICS READINESS",
                 VerticalAlignment = VerticalAlignment.Center,
                 Foreground = new SolidColorBrush(AccentColor),
                 FontFamily = new FontFamily("Segoe UI"),
-                FontSize = 10,
+                FontSize = 9,
                 FontWeight = FontWeights.SemiBold
             };
             footerLayout.Children.Add(activityText);
             Grid.SetColumn(versionText, 1);
             footerLayout.Children.Add(versionText);
             footer.Child = footerLayout;
-            Grid.SetRow(footer, 2);
-            root.Children.Add(footer);
+            Grid.SetRow(footer, 3);
+            layout.Children.Add(footer);
 
+            modalLayer = new Grid
+            {
+                Background = new SolidColorBrush(Color.FromArgb(205, 0, 0, 0)),
+                Visibility = Visibility.Collapsed
+            };
+            WindowChrome.SetIsHitTestVisibleInChrome(modalLayer, true);
+            root.Children.Add(modalLayer);
+
+            Border modal = new Border
+            {
+                Width = 500,
+                Background = new SolidColorBrush(Color.FromRgb(20, 21, 20)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(104, 82, 57)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(28, 24, 28, 24),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            StackPanel modalContent = new StackPanel();
+            TextBlock modalEyebrow = new TextBlock
+            {
+                Text = "RESTART REQUIRED",
+                FontFamily = new FontFamily("Segoe UI"),
+                FontSize = 9,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(RestartColor)
+            };
+            modalTitle = new TextBlock
+            {
+                Text = "需要重启电脑",
+                Margin = new Thickness(0, 9, 0, 0),
+                FontSize = 24,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(PrimaryTextColor)
+            };
+            modalBody = new TextBlock
+            {
+                Margin = new Thickness(0, 13, 0, 0),
+                FontSize = 12,
+                LineHeight = 21,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = new SolidColorBrush(Color.FromRgb(196, 190, 180))
+            };
+            TextBlock modalStrong = new TextBlock
+            {
+                Text = "请重启系统后，再开始下一次查端。",
+                Margin = new Thickness(0, 13, 0, 0),
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(RestartColor)
+            };
+            modalConfirmButton = CreateButton("我知道了", true);
+            modalConfirmButton.Margin = new Thickness(0, 22, 0, 0);
+            modalConfirmButton.HorizontalAlignment = HorizontalAlignment.Right;
+            modalConfirmButton.Click +=
+                delegate
+                {
+                    modalLayer.Visibility = Visibility.Collapsed;
+                    enableButton.Focus();
+                };
+            modalContent.Children.Add(modalEyebrow);
+            modalContent.Children.Add(modalTitle);
+            modalContent.Children.Add(modalBody);
+            modalContent.Children.Add(modalStrong);
+            modalContent.Children.Add(modalConfirmButton);
+            modal.Child = modalContent;
+            modalLayer.Children.Add(modal);
+
+            UpdateRestartNotice();
             Loaded += HandleLoaded;
+        }
+
+        private FrameworkElement BuildTitleBar()
+        {
+            Grid titleBar = new Grid
+            {
+                Background = new SolidColorBrush(ChromeColor)
+            };
+            titleBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            titleBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            titleBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            StackPanel trafficControls = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(16, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            trafficControls.Children.Add(
+                CreateWindowControl(
+                    Color.FromRgb(255, 95, 87),
+                    "关闭",
+                    delegate { Close(); }));
+            trafficControls.Children.Add(
+                CreateWindowControl(
+                    Color.FromRgb(254, 188, 46),
+                    "最小化",
+                    delegate { WindowState = WindowState.Minimized; }));
+            trafficControls.Children.Add(
+                CreateWindowControl(
+                    Color.FromRgb(40, 200, 64),
+                    "最大化或还原",
+                    ToggleMaximize));
+            titleBar.Children.Add(trafficControls);
+
+            StackPanel center = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            ImageSource icon = LoadEmbeddedImage("UndefinedSS.ServicesPrechecker.Assets.app.ico");
+            if (icon != null)
+            {
+                center.Children.Add(
+                    new Image
+                    {
+                        Source = icon,
+                        Width = 17,
+                        Height = 17,
+                        Margin = new Thickness(0, 0, 8, 0)
+                    });
+            }
+            center.Children.Add(
+                new TextBlock
+                {
+                    Text = "Undefined SS · Services Prechecker",
+                    FontFamily = new FontFamily("Segoe UI"),
+                    FontSize = 11,
+                    Foreground = new SolidColorBrush(Color.FromRgb(208, 205, 199)),
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+            Grid.SetColumn(center, 1);
+            titleBar.Children.Add(center);
+
+            Border edition = new Border
+            {
+                BorderBrush = new SolidColorBrush(BorderColor),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(3),
+                Padding = new Thickness(8, 4, 8, 4),
+                Margin = new Thickness(0, 0, 14, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            edition.Child = new TextBlock
+            {
+                Text = "WINDOWS  ·  1.1",
+                FontFamily = new FontFamily("Segoe UI"),
+                FontSize = 8,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(AccentColor)
+            };
+            Grid.SetColumn(edition, 2);
+            titleBar.Children.Add(edition);
+
+            return titleBar;
         }
 
         private FrameworkElement BuildHero()
         {
-            Border hero = new Border
+            Grid hero = new Grid
             {
-                Background = new SolidColorBrush(Color.FromRgb(8, 8, 8)),
+                Background = new SolidColorBrush(Color.FromRgb(8, 9, 9))
+            };
+            hero.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(445) });
+            hero.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            Border messagePanel = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(10, 11, 11)),
+                BorderBrush = new SolidColorBrush(BorderColor),
+                BorderThickness = new Thickness(0, 0, 1, 1),
+                Padding = new Thickness(28, 20, 28, 18)
+            };
+            Grid messageLayout = new Grid();
+            messageLayout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            messageLayout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            messageLayout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            TextBlock eyebrow = new TextBlock
+            {
+                Text = "SYSTEM READINESS  /  01",
+                Foreground = new SolidColorBrush(AccentColor),
+                FontFamily = new FontFamily("Segoe UI"),
+                FontSize = 9,
+                FontWeight = FontWeights.SemiBold
+            };
+            messageLayout.Children.Add(eyebrow);
+
+            StackPanel heroCopy = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            TextBlock title = new TextBlock
+            {
+                Text = "系统服务预检",
+                FontSize = 25,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(PrimaryTextColor)
+            };
+            TextBlock statement = new TextBlock
+            {
+                Margin = new Thickness(0, 8, 0, 0),
+                FontSize = 12,
+                LineHeight = 20,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = new SolidColorBrush(Color.FromRgb(190, 185, 176))
+            };
+            statement.Inlines.Add(new Run("电脑需启用所有所需系统服务并"));
+            statement.Inlines.Add(
+                new Run("重启系统")
+                {
+                    FontWeight = FontWeights.Bold,
+                    Foreground = new SolidColorBrush(RestartColor)
+                });
+            statement.Inlines.Add(new Run("才可为后续查端做准备"));
+            heroCopy.Children.Add(title);
+            heroCopy.Children.Add(statement);
+            Grid.SetRow(heroCopy, 1);
+            messageLayout.Children.Add(heroCopy);
+
+            Border restartTag = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(31, 24, 17)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(93, 68, 42)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(3),
+                Padding = new Thickness(9, 5, 9, 5),
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+            restartTag.Child = new TextBlock
+            {
+                Text = "启用后必须重启  ·  CURRENT SESSION INVALID",
+                FontFamily = new FontFamily("Segoe UI"),
+                FontSize = 8,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(RestartColor)
+            };
+            Grid.SetRow(restartTag, 2);
+            messageLayout.Children.Add(restartTag);
+            messagePanel.Child = messageLayout;
+            hero.Children.Add(messagePanel);
+
+            Border brandPanel = new Border
+            {
                 BorderBrush = new SolidColorBrush(BorderColor),
                 BorderThickness = new Thickness(0, 0, 0, 1),
                 ClipToBounds = true
             };
-
-            Grid heroGrid = new Grid();
             ImageSource banner = LoadEmbeddedImage("UndefinedSS.ServicesPrechecker.Assets.banner.png");
             if (banner != null)
             {
-                heroGrid.Background = new ImageBrush(banner)
+                brandPanel.Background = new ImageBrush(banner)
                 {
                     Stretch = Stretch.UniformToFill,
                     AlignmentX = AlignmentX.Center,
                     AlignmentY = AlignmentY.Center,
-                    Opacity = 0.82
+                    Opacity = 0.88
                 };
             }
+            Grid.SetColumn(brandPanel, 1);
+            hero.Children.Add(brandPanel);
 
-            Border shade = new Border
+            Border brandShade = new Border
             {
-                Background = new SolidColorBrush(Color.FromArgb(76, 0, 0, 0))
+                Background = new SolidColorBrush(Color.FromArgb(28, 0, 0, 0)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(120, 65, 59, 51)),
+                BorderThickness = new Thickness(0, 0, 0, 1)
             };
-            heroGrid.Children.Add(shade);
+            Grid.SetColumn(brandShade, 1);
+            hero.Children.Add(brandShade);
 
-            Grid overlay = new Grid { Margin = new Thickness(26, 20, 26, 20) };
-            overlay.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            overlay.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            overlay.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-            TextBlock eyebrow = new TextBlock
+            Border brandBadge = new Border
             {
-                Text = "UNDEFINED SS COMMUNITY  /  SERVICES PRECHECKER",
-                Foreground = new SolidColorBrush(AccentColor),
-                FontFamily = new FontFamily("Segoe UI"),
-                FontSize = 10,
-                FontWeight = FontWeights.SemiBold
-            };
-            overlay.Children.Add(eyebrow);
-
-            Border forensicBadge = new Border
-            {
-                Background = new SolidColorBrush(Color.FromArgb(185, 8, 8, 8)),
+                Background = new SolidColorBrush(Color.FromArgb(205, 8, 8, 8)),
                 BorderBrush = new SolidColorBrush(Color.FromArgb(150, 124, 116, 104)),
                 BorderThickness = new Thickness(1),
-                Padding = new Thickness(12, 7, 12, 7),
+                CornerRadius = new CornerRadius(3),
+                Padding = new Thickness(10, 6, 10, 6),
+                Margin = new Thickness(0, 16, 16, 0),
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Top
             };
-            TextBlock badgeText = new TextBlock
+            brandBadge.Child = new TextBlock
             {
-                Text = "SCREENSHARE · FORENSICS · EVIDENCE",
+                Text = "FORENSICS  ·  EVIDENCE  ·  TRUST",
                 FontFamily = new FontFamily("Segoe UI"),
-                FontSize = 9,
+                FontSize = 8,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = new SolidColorBrush(AccentColor)
             };
-            forensicBadge.Child = badgeText;
-            overlay.Children.Add(forensicBadge);
+            Grid.SetColumn(brandBadge, 1);
+            hero.Children.Add(brandBadge);
 
-            StackPanel titlePanel = new StackPanel
-            {
-                VerticalAlignment = VerticalAlignment.Bottom
-            };
-            TextBlock title = new TextBlock
-            {
-                Text = "系统服务预检",
-                FontSize = 26,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(PrimaryTextColor)
-            };
-            TextBlock subtitle = new TextBlock
-            {
-                Text = "在远程查端开始前，确认取证所需的 Windows 数据源可用",
-                Margin = new Thickness(0, 7, 0, 0),
-                FontSize = 12,
-                Foreground = new SolidColorBrush(Color.FromRgb(197, 192, 184))
-            };
-            titlePanel.Children.Add(title);
-            titlePanel.Children.Add(subtitle);
-            Grid.SetRow(titlePanel, 2);
-            overlay.Children.Add(titlePanel);
-
-            heroGrid.Children.Add(overlay);
-            hero.Child = heroGrid;
             return hero;
+        }
+
+        private Border BuildRestartNotice()
+        {
+            Border notice = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(22, 18, 14)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(79, 59, 39)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(14, 9, 14, 9)
+            };
+            Grid body = new Grid();
+            body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(4) });
+            body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+            body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            Border accent = new Border
+            {
+                Background = new SolidColorBrush(RestartColor),
+                CornerRadius = new CornerRadius(2)
+            };
+            body.Children.Add(accent);
+
+            StackPanel copy = new StackPanel();
+            copy.Children.Add(restartNoticeTitle);
+            copy.Children.Add(restartNoticeBody);
+            Grid.SetColumn(copy, 2);
+            body.Children.Add(copy);
+            notice.Child = body;
+            return notice;
+        }
+
+        private Button CreateWindowControl(Color color, string tooltip, Action action)
+        {
+            Button button = new Button
+            {
+                Width = 14,
+                Height = 14,
+                Margin = new Thickness(0, 0, 8, 0),
+                Background = new SolidColorBrush(color),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(95, 0, 0, 0)),
+                BorderThickness = new Thickness(1),
+                Cursor = Cursors.Hand,
+                FocusVisualStyle = null,
+                ToolTip = tooltip,
+                Template = BuildCircleButtonTemplate()
+            };
+            WindowChrome.SetIsHitTestVisibleInChrome(button, true);
+            button.Click += delegate { action(); };
+            AutomationProperties.SetName(button, tooltip);
+            button.MouseEnter +=
+                delegate
+                {
+                    button.Opacity = 0.78;
+                };
+            button.MouseLeave +=
+                delegate
+                {
+                    button.Opacity = 1.0;
+                };
+            return button;
         }
 
         private async void HandleLoaded(object sender, RoutedEventArgs e)
@@ -262,10 +589,16 @@ namespace UndefinedSS.ServicesPrechecker
             {
                 await EnableAllServices();
             }
+            else if (restartPending)
+            {
+                ShowRestartModal(-1);
+            }
         }
 
         private async void HandleRefreshClick(object sender, RoutedEventArgs e)
         {
+            restartPending = RestartRequirement.IsPendingForCurrentBoot();
+            UpdateRestartNotice();
             await RefreshSnapshots();
         }
 
@@ -321,22 +654,20 @@ namespace UndefinedSS.ServicesPrechecker
             }
 
             RenderSnapshots(snapshots);
-            SetBusy(false, "检查完成。所有检查均在本机完成，不会上传任何数据。");
+            string completedMessage = restartPending
+                ? "服务设置已改变：请重启系统；当前启动周期的查端仍按异常处理。"
+                : "检查完成。所有检查均在本机完成，不会上传任何数据。";
+            SetBusy(false, completedMessage);
         }
 
         private async Task EnableAllServices()
         {
-            if (isBusy)
+            if (isBusy || !ServiceManager.IsAdministrator())
             {
                 return;
             }
 
-            if (!ServiceManager.IsAdministrator())
-            {
-                return;
-            }
-
-            SetBusy(true, "正在启用并启动取证所需服务，请稍候…");
+            SetBusy(true, "正在配置取证所需服务，请稍候…");
 
             IList<EnableResult> results;
             try
@@ -353,42 +684,25 @@ namespace UndefinedSS.ServicesPrechecker
                 return;
             }
 
+            if (results.Any(delegate(EnableResult item) { return item.Success; }))
+            {
+                RestartRequirement.MarkPendingForCurrentBoot();
+                restartPending = true;
+            }
+
             IList<ServiceSnapshot> snapshots = await Task.Run(
                 delegate
                 {
                     return ServiceManager.GetSnapshots();
                 });
-
-            foreach (EnableResult result in results.Where(delegate(EnableResult item) { return item.RequiresRestart; }))
-            {
-                ServiceSnapshot snapshot = snapshots.FirstOrDefault(
-                    delegate(ServiceSnapshot item)
-                    {
-                        return string.Equals(
-                            item.Definition.ServiceName,
-                            result.Definition.ServiceName,
-                            StringComparison.OrdinalIgnoreCase);
-                    });
-                if (snapshot != null && !snapshot.IsHealthy)
-                {
-                    snapshot.VisualState = ServiceVisualState.RebootRequired;
-                    snapshot.StatusText = "需要重启";
-                    snapshot.Detail = result.Message;
-                }
-            }
-
             RenderSnapshots(snapshots);
+            UpdateRestartNotice();
 
             int failed = results.Count(delegate(EnableResult item) { return !item.Success; });
-            int restart = results.Count(delegate(EnableResult item) { return item.RequiresRestart; });
             string message;
-            if (failed == 0 && restart == 0)
+            if (failed == 0)
             {
-                message = "全部服务已启用并开始运行，可以继续查端。";
-            }
-            else if (failed == 0)
-            {
-                message = "服务配置已完成；其中 " + restart + " 项需要重启 Windows 后生效。";
+                message = "全部系统服务已配置；必须重启电脑，后续查端才可生效。";
             }
             else
             {
@@ -396,24 +710,54 @@ namespace UndefinedSS.ServicesPrechecker
                     "、",
                     results.Where(delegate(EnableResult item) { return !item.Success; })
                            .Select(delegate(EnableResult item) { return item.Definition.DisplayName; }));
-                message = "有 " + failed + " 项未能启用：" + failedNames + "。";
+                message =
+                    "部分服务已配置，但 " + failedNames +
+                    " 未能启用。处理失败项目后仍必须重启电脑。";
             }
 
             SetBusy(false, message);
+            ShowRestartModal(failed);
         }
 
         private void RenderSnapshots(IList<ServiceSnapshot> snapshots)
         {
+            if (restartPending)
+            {
+                foreach (ServiceSnapshot snapshot in snapshots)
+                {
+                    if (snapshot.VisualState == ServiceVisualState.Running)
+                    {
+                        snapshot.VisualState = ServiceVisualState.RebootRequired;
+                        snapshot.StatusText = "等待重启";
+                        snapshot.Detail = "服务已运行，但仅在重启后的查端中生效";
+                    }
+                }
+            }
+
             servicesGrid.Children.Clear();
             foreach (ServiceSnapshot snapshot in snapshots)
             {
                 servicesGrid.Children.Add(BuildServiceCard(snapshot));
             }
-
             servicesGrid.Children.Add(BuildInformationCard());
 
-            int healthy = snapshots.Count(delegate(ServiceSnapshot snapshot) { return snapshot.IsHealthy; });
-            if (healthy == snapshots.Count)
+            int healthy = snapshots.Count(
+                delegate(ServiceSnapshot snapshot)
+                {
+                    return snapshot.VisualState == ServiceVisualState.Running;
+                });
+            int attention = snapshots.Count(
+                delegate(ServiceSnapshot snapshot)
+                {
+                    return snapshot.VisualState != ServiceVisualState.Running;
+                });
+
+            if (restartPending)
+            {
+                summaryText.Text = "服务已配置，等待系统重启";
+                summaryText.Foreground = new SolidColorBrush(RestartColor);
+            }
+            else if (healthy == snapshots.Count)
             {
                 summaryText.Text = "7 / 7 项服务运行正常";
                 summaryText.Foreground = new SolidColorBrush(Color.FromRgb(119, 205, 151));
@@ -424,12 +768,19 @@ namespace UndefinedSS.ServicesPrechecker
                 summaryText.Foreground = new SolidColorBrush(PrimaryTextColor);
             }
 
-            int attention = snapshots.Count(delegate(ServiceSnapshot snapshot) { return !snapshot.IsHealthy; });
             string privilege = ServiceManager.IsAdministrator() ? "已获得管理员权限" : "按需请求管理员权限";
-            metadataText.Text =
-                "最近检测 " + DateTime.Now.ToString("HH:mm:ss") +
-                "  ·  " + privilege +
-                (attention > 0 ? "  ·  " + attention + " 项需要处理" : "  ·  已具备采集条件");
+            if (restartPending)
+            {
+                metadataText.Text =
+                    "当前启动周期仍无效  ·  必须重启后再进行后续查端  ·  " + privilege;
+            }
+            else
+            {
+                metadataText.Text =
+                    "最近检测 " + DateTime.Now.ToString("HH:mm:ss") +
+                    "  ·  " + privilege +
+                    (attention > 0 ? "  ·  " + attention + " 项需要处理" : "  ·  已具备服务运行条件");
+            }
         }
 
         private FrameworkElement BuildServiceCard(ServiceSnapshot snapshot)
@@ -439,14 +790,14 @@ namespace UndefinedSS.ServicesPrechecker
                 Background = new SolidColorBrush(PanelColor),
                 BorderBrush = new SolidColorBrush(BorderColor),
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(4),
-                Margin = new Thickness(6),
-                Padding = new Thickness(16, 14, 16, 12)
+                CornerRadius = new CornerRadius(5),
+                Margin = new Thickness(5),
+                Padding = new Thickness(14, 12, 14, 11)
             };
 
             Grid cardGrid = new Grid();
             cardGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            cardGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(6) });
+            cardGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(5) });
             cardGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             cardGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             cardGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -460,10 +811,10 @@ namespace UndefinedSS.ServicesPrechecker
                 Text = snapshot.Definition.DisplayName,
                 Foreground = new SolidColorBrush(PrimaryTextColor),
                 FontFamily = new FontFamily("Segoe UI"),
-                FontSize = 13,
+                FontSize = 12,
                 FontWeight = FontWeights.SemiBold,
                 TextTrimming = TextTrimming.CharacterEllipsis,
-                Margin = new Thickness(0, 0, 10, 0)
+                Margin = new Thickness(0, 0, 9, 0)
             };
             headingGrid.Children.Add(name);
 
@@ -472,7 +823,7 @@ namespace UndefinedSS.ServicesPrechecker
                 Text = snapshot.Definition.ServiceName,
                 Foreground = new SolidColorBrush(AccentColor),
                 FontFamily = new FontFamily("Consolas"),
-                FontSize = 10,
+                FontSize = 9,
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Center
             };
@@ -484,9 +835,9 @@ namespace UndefinedSS.ServicesPrechecker
             {
                 Text = snapshot.Definition.Description,
                 Foreground = new SolidColorBrush(SecondaryTextColor),
-                FontSize = 11,
+                FontSize = 10,
                 TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 0, 0, 8)
+                Margin = new Thickness(0, 0, 0, 6)
             };
             Grid.SetRow(description, 2);
             cardGrid.Children.Add(description);
@@ -497,7 +848,7 @@ namespace UndefinedSS.ServicesPrechecker
                     ? "启动方式：" + snapshot.StartTypeText
                     : snapshot.Detail,
                 Foreground = new SolidColorBrush(Color.FromRgb(123, 120, 114)),
-                FontSize = 10,
+                FontSize = 9,
                 TextWrapping = TextWrapping.Wrap,
                 VerticalAlignment = VerticalAlignment.Top
             };
@@ -521,24 +872,24 @@ namespace UndefinedSS.ServicesPrechecker
                 BorderBrush = new SolidColorBrush(Color.FromArgb(105, stateColor.R, stateColor.G, stateColor.B)),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(3),
-                Padding = new Thickness(8, 5, 8, 5),
+                Padding = new Thickness(7, 4, 7, 4),
                 HorizontalAlignment = HorizontalAlignment.Left
             };
 
             StackPanel content = new StackPanel { Orientation = Orientation.Horizontal };
             Ellipse dot = new Ellipse
             {
-                Width = 7,
-                Height = 7,
+                Width = 6,
+                Height = 6,
                 Fill = new SolidColorBrush(stateColor),
-                Margin = new Thickness(0, 0, 7, 0),
+                Margin = new Thickness(0, 0, 6, 0),
                 VerticalAlignment = VerticalAlignment.Center
             };
             TextBlock label = new TextBlock
             {
                 Text = snapshot.StatusText,
                 Foreground = new SolidColorBrush(stateColor),
-                FontSize = 10,
+                FontSize = 9,
                 FontWeight = FontWeights.SemiBold
             };
             content.Children.Add(dot);
@@ -554,9 +905,9 @@ namespace UndefinedSS.ServicesPrechecker
                 Background = new SolidColorBrush(PanelRaisedColor),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(72, 66, 58)),
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(4),
-                Margin = new Thickness(6),
-                Padding = new Thickness(16, 14, 16, 12)
+                CornerRadius = new CornerRadius(5),
+                Margin = new Thickness(5),
+                Padding = new Thickness(14, 12, 14, 11)
             };
 
             Grid layout = new Grid();
@@ -568,31 +919,29 @@ namespace UndefinedSS.ServicesPrechecker
             ImageSource logo = LoadEmbeddedImage("UndefinedSS.ServicesPrechecker.Assets.app.ico");
             if (logo != null)
             {
-                Image logoImage = new Image
-                {
-                    Source = logo,
-                    Width = 28,
-                    Height = 28,
-                    Stretch = Stretch.UniformToFill,
-                    Margin = new Thickness(0, 0, 10, 0)
-                };
-                heading.Children.Add(logoImage);
+                heading.Children.Add(
+                    new Image
+                    {
+                        Source = logo,
+                        Width = 27,
+                        Height = 27,
+                        Margin = new Thickness(0, 0, 9, 0)
+                    });
             }
-
             StackPanel headingText = new StackPanel();
             headingText.Children.Add(
                 new TextBlock
                 {
-                    Text = "查端前准备",
+                    Text = "重启后生效",
                     Foreground = new SolidColorBrush(PrimaryTextColor),
-                    FontSize = 13,
+                    FontSize = 12,
                     FontWeight = FontWeights.SemiBold
                 });
             headingText.Children.Add(
                 new TextBlock
                 {
-                    Text = "FORENSICS READINESS",
-                    Foreground = new SolidColorBrush(AccentColor),
+                    Text = "RESTART GATE",
+                    Foreground = new SolidColorBrush(RestartColor),
                     FontFamily = new FontFamily("Segoe UI"),
                     FontSize = 8,
                     FontWeight = FontWeights.SemiBold
@@ -602,9 +951,9 @@ namespace UndefinedSS.ServicesPrechecker
 
             TextBlock body = new TextBlock
             {
-                Text = "启用这些服务只恢复 Windows 数据源，不会开始远程连接、采集或上传数据。",
+                Text = "现在启用服务不会让本次查端变为有效。必须重启系统，后续查端才可生效。",
                 Foreground = new SolidColorBrush(SecondaryTextColor),
-                FontSize = 11,
+                FontSize = 10,
                 TextWrapping = TextWrapping.Wrap,
                 VerticalAlignment = VerticalAlignment.Center
             };
@@ -613,9 +962,10 @@ namespace UndefinedSS.ServicesPrechecker
 
             TextBlock note = new TextBlock
             {
-                Text = "BAM 驱动可能需要重启后生效",
-                Foreground = new SolidColorBrush(Color.FromRgb(188, 176, 156)),
-                FontSize = 10
+                Text = "当前启动周期仍按异常处理",
+                Foreground = new SolidColorBrush(RestartColor),
+                FontSize = 9,
+                FontWeight = FontWeights.SemiBold
             };
             Grid.SetRow(note, 2);
             layout.Children.Add(note);
@@ -629,11 +979,11 @@ namespace UndefinedSS.ServicesPrechecker
             Button button = new Button
             {
                 Content = text,
-                Height = 38,
-                MinWidth = primary ? 174 : 104,
-                Padding = new Thickness(16, 0, 16, 0),
+                Height = 36,
+                MinWidth = primary ? 184 : 100,
+                Padding = new Thickness(15, 0, 15, 0),
                 FontFamily = new FontFamily("Microsoft YaHei UI"),
-                FontSize = 12,
+                FontSize = 11,
                 FontWeight = FontWeights.SemiBold,
                 Cursor = Cursors.Hand,
                 FocusVisualStyle = null,
@@ -647,20 +997,17 @@ namespace UndefinedSS.ServicesPrechecker
             button.MouseEnter +=
                 delegate
                 {
-                    if (!button.IsEnabled)
+                    if (button.IsEnabled)
                     {
-                        return;
+                        button.Background = new SolidColorBrush(
+                            primary ? Color.FromRgb(218, 209, 192) : Color.FromRgb(27, 28, 27));
                     }
-
-                    button.Background = new SolidColorBrush(
-                        primary ? Color.FromRgb(213, 204, 187) : Color.FromRgb(26, 26, 25));
                 };
             button.MouseLeave +=
                 delegate
                 {
                     button.Background = new SolidColorBrush(primary ? AccentColor : PanelColor);
                 };
-
             return button;
         }
 
@@ -670,7 +1017,7 @@ namespace UndefinedSS.ServicesPrechecker
             border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Button.BackgroundProperty));
             border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Button.BorderBrushProperty));
             border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Button.BorderThicknessProperty));
-            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(3));
+            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(4));
 
             FrameworkElementFactory presenter = new FrameworkElementFactory(typeof(ContentPresenter));
             presenter.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
@@ -683,14 +1030,93 @@ namespace UndefinedSS.ServicesPrechecker
             return template;
         }
 
+        private static ControlTemplate BuildCircleButtonTemplate()
+        {
+            FrameworkElementFactory ellipse = new FrameworkElementFactory(typeof(Ellipse));
+            ellipse.SetValue(Shape.FillProperty, new TemplateBindingExtension(Button.BackgroundProperty));
+            ellipse.SetValue(Shape.StrokeProperty, new TemplateBindingExtension(Button.BorderBrushProperty));
+            ellipse.SetValue(Shape.StrokeThicknessProperty, 1.0);
+            ControlTemplate template = new ControlTemplate(typeof(Button));
+            template.VisualTree = ellipse;
+            return template;
+        }
+
+        private void UpdateRestartNotice()
+        {
+            if (restartPending)
+            {
+                restartNotice.Background = new SolidColorBrush(Color.FromRgb(33, 20, 15));
+                restartNotice.BorderBrush = new SolidColorBrush(Color.FromRgb(116, 62, 41));
+                restartNoticeTitle.Text = "已配置服务，必须重启系统";
+                restartNoticeBody.Text =
+                    "当前启动周期内的查端仍按异常处理。请重启 Windows；只有重启后的后续查端才有效。";
+            }
+            else
+            {
+                restartNotice.Background = new SolidColorBrush(Color.FromRgb(22, 18, 14));
+                restartNotice.BorderBrush = new SolidColorBrush(Color.FromRgb(79, 59, 39));
+                restartNoticeTitle.Text = "启用任何所需服务后，都必须重启系统";
+                restartNoticeBody.Text =
+                    "如果现在才启用服务，本次查端仍按异常处理；只有重启后的后续查端才有效。";
+            }
+        }
+
+        private void ShowRestartModal(int failedCount)
+        {
+            if (failedCount < 0)
+            {
+                modalTitle.Text = "仍需重启电脑";
+                modalBody.Text =
+                    "检测到服务设置是在本次 Windows 启动期间完成的。当前启动周期的查端仍会按照“异常”处理，不能用于后续查端判断。";
+            }
+            else if (failedCount == 0)
+            {
+                modalTitle.Text = "服务已配置，需要重启电脑";
+                modalBody.Text =
+                    "全部所需系统服务已完成配置。但这些服务不会让当前启动周期的查端变为有效，本次查端结果仍会按照“异常”处理。";
+            }
+            else
+            {
+                modalTitle.Text = "部分服务已配置";
+                modalBody.Text =
+                    "已完成可用的服务设置，但仍有服务未能启用。解决失败项目后也必须重启系统；当前启动周期的查端仍会按照“异常”处理。";
+            }
+
+            modalLayer.Visibility = Visibility.Visible;
+            modalConfirmButton.Focus();
+        }
+
         private void SetBusy(bool busy, string activity)
         {
             isBusy = busy;
             refreshButton.IsEnabled = !busy;
             enableButton.IsEnabled = !busy;
-            enableButton.Content = busy ? "正在处理…" : "一键启用全部服务";
+            enableButton.Content = busy ? "正在处理…" : "一键启用全部系统服务";
             activityText.Text = activity;
             Cursor = busy ? Cursors.Wait : Cursors.Arrow;
+        }
+
+        private void ToggleMaximize()
+        {
+            WindowState = WindowState == WindowState.Maximized
+                ? WindowState.Normal
+                : WindowState.Maximized;
+        }
+
+        private void HandleWindowStateChanged(object sender, EventArgs e)
+        {
+            windowFrame.CornerRadius = WindowState == WindowState.Maximized
+                ? new CornerRadius(0)
+                : new CornerRadius(11);
+        }
+
+        private void HandlePreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape && modalLayer.Visibility == Visibility.Visible)
+            {
+                modalLayer.Visibility = Visibility.Collapsed;
+                e.Handled = true;
+            }
         }
 
         private static Color GetStateColor(ServiceVisualState state)
@@ -702,7 +1128,7 @@ namespace UndefinedSS.ServicesPrechecker
                 case ServiceVisualState.Disabled:
                     return Color.FromRgb(225, 106, 102);
                 case ServiceVisualState.RebootRequired:
-                    return Color.FromRgb(175, 143, 221);
+                    return Color.FromRgb(225, 158, 78);
                 case ServiceVisualState.Missing:
                 case ServiceVisualState.Error:
                     return Color.FromRgb(139, 139, 139);
@@ -734,8 +1160,10 @@ namespace UndefinedSS.ServicesPrechecker
         private void HandleSourceInitialized(object sender, EventArgs e)
         {
             IntPtr handle = new WindowInteropHelper(this).Handle;
-            int enabled = 1;
-            DwmSetWindowAttribute(handle, 20, ref enabled, sizeof(int));
+            int darkMode = 1;
+            DwmSetWindowAttribute(handle, 20, ref darkMode, sizeof(int));
+            int roundedCorners = 2;
+            DwmSetWindowAttribute(handle, 33, ref roundedCorners, sizeof(int));
         }
 
         [DllImport("dwmapi.dll")]
