@@ -1,0 +1,39 @@
+using System;
+using System.Linq;
+using System.Windows;
+
+namespace UndefinedSS.ServicesPrechecker
+{
+    internal static class Program
+    {
+        [STAThread]
+        private static void Main(string[] args)
+        {
+            bool autoEnable = args.Any(
+                delegate(string value)
+                {
+                    return string.Equals(value, "--enable-all", StringComparison.OrdinalIgnoreCase);
+                });
+
+            AppDomain.CurrentDomain.UnhandledException +=
+                delegate(object sender, UnhandledExceptionEventArgs eventArgs)
+                {
+                    Exception exception = eventArgs.ExceptionObject as Exception;
+                    if (exception != null)
+                    {
+                        MessageBox.Show(
+                            "程序遇到未处理的错误：\n\n" + exception.Message,
+                            "Services Prechecker",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Error);
+                    }
+                };
+
+            Application application = new Application();
+            application.ShutdownMode = ShutdownMode.OnMainWindowClose;
+            MainWindow window = new MainWindow(autoEnable);
+            application.Run(window);
+        }
+    }
+}
+

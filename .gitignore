@@ -1,0 +1,13 @@
+bin/
+obj/
+dist/
+*.user
+*.suo
+*.pfx
+*.p12
+*.cer
+*.pdb
+*.log
+.vs/
+qa/*.png
+

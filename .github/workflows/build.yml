@@ -1,0 +1,46 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+
+jobs:
+  windows-build:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build standalone EXE
+        shell: pwsh
+        run: ./build.ps1
+
+      - name: Sign EXE
+        if: ${{ secrets.SIGNING_CERTIFICATE_BASE64 != '' }}
+        shell: pwsh
+        env:
+          SIGNING_CERTIFICATE_BASE64: ${{ secrets.SIGNING_CERTIFICATE_BASE64 }}
+          SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "code-signing.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGNING_CERTIFICATE_BASE64))
+          ./sign.ps1 -PfxPath $pfx -PfxPassword $env:SIGNING_CERTIFICATE_PASSWORD
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ServicesPrechecker-win-x64
+          path: |
+            dist/ServicesPrechecker.exe
+            dist/ServicesPrechecker.exe.sha256
+
