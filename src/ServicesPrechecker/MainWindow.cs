@@ -80,7 +80,7 @@ namespace UndefinedSS.ServicesPrechecker
             };
             WindowChrome.SetWindowChrome(this, chrome);
 
-            ImageSource icon = LoadEmbeddedImage("UndefinedSS.ServicesPrechecker.Assets.app.ico");
+            ImageSource icon = LoadEmbeddedImage("UndefinedSS.ServicesPrechecker.Assets.app-logo.png");
             if (icon != null)
             {
                 Icon = icon;
@@ -105,7 +105,7 @@ namespace UndefinedSS.ServicesPrechecker
 
             Grid layout = new Grid();
             layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(44) });
-            layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(184) });
+            layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(218) });
             layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(44) });
             windowFrame.Child = layout;
@@ -211,7 +211,7 @@ namespace UndefinedSS.ServicesPrechecker
             };
             TextBlock versionText = new TextBlock
             {
-                Text = "v1.1.0  ·  FORENSICS READINESS",
+                Text = "v1.2.0  ·  FORENSICS READINESS",
                 VerticalAlignment = VerticalAlignment.Center,
                 Foreground = new SolidColorBrush(AccentColor),
                 FontFamily = new FontFamily("Segoe UI"),
@@ -337,7 +337,7 @@ namespace UndefinedSS.ServicesPrechecker
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            ImageSource icon = LoadEmbeddedImage("UndefinedSS.ServicesPrechecker.Assets.app.ico");
+            ImageSource icon = LoadEmbeddedImage("UndefinedSS.ServicesPrechecker.Assets.app-logo.png");
             if (icon != null)
             {
                 center.Children.Add(
@@ -372,7 +372,7 @@ namespace UndefinedSS.ServicesPrechecker
             };
             edition.Child = new TextBlock
             {
-                Text = "WINDOWS  ·  1.1",
+                Text = "WINDOWS  ·  1.2",
                 FontFamily = new FontFamily("Segoe UI"),
                 FontSize = 8,
                 FontWeight = FontWeights.SemiBold,
@@ -386,24 +386,105 @@ namespace UndefinedSS.ServicesPrechecker
 
         private FrameworkElement BuildHero()
         {
-            Grid hero = new Grid
+            Border hero = new Border
             {
-                Background = new SolidColorBrush(Color.FromRgb(8, 9, 9))
-            };
-            hero.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(445) });
-            hero.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-            Border messagePanel = new Border
-            {
-                Background = new SolidColorBrush(Color.FromRgb(10, 11, 11)),
                 BorderBrush = new SolidColorBrush(BorderColor),
-                BorderThickness = new Thickness(0, 0, 1, 1),
-                Padding = new Thickness(28, 20, 28, 18)
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                ClipToBounds = true
             };
-            Grid messageLayout = new Grid();
-            messageLayout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            messageLayout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            messageLayout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            ImageSource texture = LoadEmbeddedImage(
+                "UndefinedSS.ServicesPrechecker.Assets.hero-texture.png");
+            if (texture != null)
+            {
+                hero.Background = new ImageBrush(texture)
+                {
+                    Stretch = Stretch.UniformToFill,
+                    AlignmentX = AlignmentX.Center,
+                    AlignmentY = AlignmentY.Center,
+                    Opacity = 0.86
+                };
+            }
+            else
+            {
+                hero.Background = new SolidColorBrush(Color.FromRgb(8, 9, 9));
+            }
+
+            Grid heroLayers = new Grid();
+            hero.Child = heroLayers;
+            heroLayers.Children.Add(
+                new Border
+                {
+                    Background = new SolidColorBrush(Color.FromArgb(62, 0, 0, 0))
+                });
+
+            Grid heroLayout = new Grid
+            {
+                Margin = new Thickness(32, 20, 32, 18)
+            };
+            heroLayout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(136) });
+            heroLayout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
+            heroLayout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            heroLayout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(244) });
+            heroLayers.Children.Add(heroLayout);
+
+            StackPanel identity = new StackPanel
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+
+            ImageSource appLogo = LoadEmbeddedImage(
+                "UndefinedSS.ServicesPrechecker.Assets.app-logo.png");
+            if (appLogo != null)
+            {
+                identity.Children.Add(
+                    new Image
+                    {
+                        Source = appLogo,
+                        Width = 78,
+                        Height = 78,
+                        HorizontalAlignment = HorizontalAlignment.Left
+                    });
+            }
+
+            identity.Children.Add(
+                new TextBlock
+                {
+                    Text = "UNDEFINED SS",
+                    Margin = new Thickness(0, 6, 0, 0),
+                    FontFamily = new FontFamily("Segoe UI"),
+                    FontSize = 9,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = new SolidColorBrush(AccentColor)
+                });
+            identity.Children.Add(
+                new TextBlock
+                {
+                    Text = "SERVICES PRECHECKER",
+                    Margin = new Thickness(0, 2, 0, 0),
+                    FontFamily = new FontFamily("Segoe UI"),
+                    FontSize = 7,
+                    Foreground = new SolidColorBrush(SecondaryTextColor)
+                });
+            heroLayout.Children.Add(identity);
+
+            Border identityDivider = new Border
+            {
+                BorderBrush = new SolidColorBrush(Color.FromArgb(96, 89, 82, 72)),
+                BorderThickness = new Thickness(1, 0, 0, 0),
+                Margin = new Thickness(13, 0, 13, 0)
+            };
+            Grid.SetColumn(identityDivider, 1);
+            heroLayout.Children.Add(identityDivider);
+
+            Grid copy = new Grid
+            {
+                Margin = new Thickness(8, 1, 28, 1)
+            };
+            copy.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            copy.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            copy.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
             TextBlock eyebrow = new TextBlock
             {
@@ -413,19 +494,23 @@ namespace UndefinedSS.ServicesPrechecker
                 FontSize = 9,
                 FontWeight = FontWeights.SemiBold
             };
-            messageLayout.Children.Add(eyebrow);
+            copy.Children.Add(eyebrow);
 
-            StackPanel heroCopy = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            TextBlock title = new TextBlock
+            StackPanel heroCopy = new StackPanel
             {
-                Text = "系统服务预检",
-                FontSize = 25,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(PrimaryTextColor)
+                VerticalAlignment = VerticalAlignment.Center
             };
+            heroCopy.Children.Add(
+                new TextBlock
+                {
+                    Text = "系统服务预检",
+                    FontSize = 31,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = new SolidColorBrush(PrimaryTextColor)
+                });
             TextBlock statement = new TextBlock
             {
-                Margin = new Thickness(0, 8, 0, 0),
+                Margin = new Thickness(0, 7, 0, 0),
                 FontSize = 12,
                 LineHeight = 20,
                 TextWrapping = TextWrapping.Wrap,
@@ -439,83 +524,103 @@ namespace UndefinedSS.ServicesPrechecker
                     Foreground = new SolidColorBrush(RestartColor)
                 });
             statement.Inlines.Add(new Run("才可为后续查端做准备"));
-            heroCopy.Children.Add(title);
             heroCopy.Children.Add(statement);
             Grid.SetRow(heroCopy, 1);
-            messageLayout.Children.Add(heroCopy);
+            copy.Children.Add(heroCopy);
 
-            Border restartTag = new Border
+            Border restartLine = new Border
             {
-                Background = new SolidColorBrush(Color.FromRgb(31, 24, 17)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(93, 68, 42)),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(3),
-                Padding = new Thickness(9, 5, 9, 5),
-                HorizontalAlignment = HorizontalAlignment.Left
+                BorderBrush = new SolidColorBrush(Color.FromArgb(105, 102, 82, 59)),
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                Padding = new Thickness(0, 8, 0, 0)
             };
-            restartTag.Child = new TextBlock
+            StackPanel restartContent = new StackPanel
             {
-                Text = "启用后必须重启  ·  CURRENT SESSION INVALID",
-                FontFamily = new FontFamily("Segoe UI"),
-                FontSize = 8,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(RestartColor)
+                Orientation = Orientation.Horizontal
             };
-            Grid.SetRow(restartTag, 2);
-            messageLayout.Children.Add(restartTag);
-            messagePanel.Child = messageLayout;
-            hero.Children.Add(messagePanel);
-
-            Border brandPanel = new Border
-            {
-                BorderBrush = new SolidColorBrush(BorderColor),
-                BorderThickness = new Thickness(0, 0, 0, 1),
-                ClipToBounds = true
-            };
-            ImageSource banner = LoadEmbeddedImage("UndefinedSS.ServicesPrechecker.Assets.banner.png");
-            if (banner != null)
-            {
-                brandPanel.Background = new ImageBrush(banner)
+            restartContent.Children.Add(
+                new Ellipse
                 {
-                    Stretch = Stretch.UniformToFill,
-                    AlignmentX = AlignmentX.Center,
-                    AlignmentY = AlignmentY.Center,
-                    Opacity = 0.88
-                };
-            }
-            Grid.SetColumn(brandPanel, 1);
-            hero.Children.Add(brandPanel);
+                    Width = 6,
+                    Height = 6,
+                    Fill = new SolidColorBrush(RestartColor),
+                    Margin = new Thickness(0, 0, 8, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+            restartContent.Children.Add(
+                new TextBlock
+                {
+                    Text = "启用后必须重启  ·  CURRENT SESSION INVALID",
+                    FontFamily = new FontFamily("Segoe UI"),
+                    FontSize = 9,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = new SolidColorBrush(RestartColor)
+                });
+            restartLine.Child = restartContent;
+            Grid.SetRow(restartLine, 2);
+            copy.Children.Add(restartLine);
+            Grid.SetColumn(copy, 2);
+            heroLayout.Children.Add(copy);
 
-            Border brandShade = new Border
+            Border evidence = new Border
             {
-                Background = new SolidColorBrush(Color.FromArgb(28, 0, 0, 0)),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(120, 65, 59, 51)),
-                BorderThickness = new Thickness(0, 0, 0, 1)
+                BorderBrush = new SolidColorBrush(Color.FromArgb(96, 89, 82, 72)),
+                BorderThickness = new Thickness(1, 0, 0, 0),
+                Padding = new Thickness(24, 2, 0, 1)
             };
-            Grid.SetColumn(brandShade, 1);
-            hero.Children.Add(brandShade);
-
-            Border brandBadge = new Border
+            StackPanel evidenceContent = new StackPanel
             {
-                Background = new SolidColorBrush(Color.FromArgb(205, 8, 8, 8)),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(150, 124, 116, 104)),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(3),
-                Padding = new Thickness(10, 6, 10, 6),
-                Margin = new Thickness(0, 16, 16, 0),
-                HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Top
+                VerticalAlignment = VerticalAlignment.Center
             };
-            brandBadge.Child = new TextBlock
-            {
-                Text = "FORENSICS  ·  EVIDENCE  ·  TRUST",
-                FontFamily = new FontFamily("Segoe UI"),
-                FontSize = 8,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(AccentColor)
-            };
-            Grid.SetColumn(brandBadge, 1);
-            hero.Children.Add(brandBadge);
+            evidenceContent.Children.Add(
+                new TextBlock
+                {
+                    Text = "READINESS GATE",
+                    FontFamily = new FontFamily("Segoe UI"),
+                    FontSize = 8,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = new SolidColorBrush(RestartColor)
+                });
+            evidenceContent.Children.Add(
+                new TextBlock
+                {
+                    Text = "01   SERVICE STATE",
+                    Margin = new Thickness(0, 14, 0, 0),
+                    FontFamily = new FontFamily("Consolas"),
+                    FontSize = 9,
+                    Foreground = new SolidColorBrush(AccentColor)
+                });
+            evidenceContent.Children.Add(
+                new TextBlock
+                {
+                    Text = "02   BOOT VALIDITY",
+                    Margin = new Thickness(0, 8, 0, 0),
+                    FontFamily = new FontFamily("Consolas"),
+                    FontSize = 9,
+                    Foreground = new SolidColorBrush(AccentColor)
+                });
+            evidenceContent.Children.Add(
+                new TextBlock
+                {
+                    Text = "03   FORENSIC SOURCES",
+                    Margin = new Thickness(0, 8, 0, 0),
+                    FontFamily = new FontFamily("Consolas"),
+                    FontSize = 9,
+                    Foreground = new SolidColorBrush(AccentColor)
+                });
+            evidenceContent.Children.Add(
+                new TextBlock
+                {
+                    Text = "RESTART TO ESTABLISH A VALID BASELINE",
+                    Margin = new Thickness(0, 15, 0, 0),
+                    FontFamily = new FontFamily("Segoe UI"),
+                    FontSize = 7,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = new SolidColorBrush(SecondaryTextColor)
+                });
+            evidence.Child = evidenceContent;
+            Grid.SetColumn(evidence, 3);
+            heroLayout.Children.Add(evidence);
 
             return hero;
         }
@@ -916,7 +1021,7 @@ namespace UndefinedSS.ServicesPrechecker
             layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
             StackPanel heading = new StackPanel { Orientation = Orientation.Horizontal };
-            ImageSource logo = LoadEmbeddedImage("UndefinedSS.ServicesPrechecker.Assets.app.ico");
+            ImageSource logo = LoadEmbeddedImage("UndefinedSS.ServicesPrechecker.Assets.app-logo.png");
             if (logo != null)
             {
                 heading.Children.Add(

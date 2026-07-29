@@ -6,6 +6,8 @@ Undefined SS Community 的 Windows 查端前置检查工具。它会在本机检
 
 ![Undefined SS Community banner](assets/banner.png)
 
+应用采用专为小尺寸 Windows 图标重新设计的双 S“取证门”标记，并使用连续的低对比度取证地图界面，避免 Banner 与产品文案争夺视觉焦点。
+
 ## 检查项目
 
 | 界面名称 | Windows 服务名 | 启用后的启动方式 |
@@ -60,6 +62,8 @@ Minecraft 查端通常判断的是本次电脑启动到查端人员远程连接�
 
 请勿把 PFX 文件或密码提交到仓库。GitHub Actions 可通过
 `SIGNING_CERTIFICATE_BASE64` 和 `SIGNING_CERTIFICATE_PASSWORD` 两个仓库密钥对构建产物签名。
+
+当前发布包附带社区自签名证书用于校验 Authenticode 签名与文件完整性；它不具备公共 CA 信任链或 SmartScreen 信誉。面向公众分发时，应在 GitHub Secrets 中配置受信任代码签名机构颁发的证书。
 
 ## 兼容性
 

@@ -1,6 +1,8 @@
 using System;
 using System.Linq;
 using System.Windows;
+using System.Windows.Interop;
+using System.Windows.Media;
 
 namespace UndefinedSS.ServicesPrechecker
 {
@@ -31,9 +33,9 @@ namespace UndefinedSS.ServicesPrechecker
 
             Application application = new Application();
             application.ShutdownMode = ShutdownMode.OnMainWindowClose;
+            RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
             MainWindow window = new MainWindow(autoEnable);
             application.Run(window);
         }
     }
 }
-

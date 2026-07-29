@@ -57,6 +57,8 @@ $arguments = @(
     "/win32manifest:$(Join-Path $projectRoot 'app.manifest')",
     "/resource:$(Join-Path $projectRoot 'assets\banner.png'),UndefinedSS.ServicesPrechecker.Assets.banner.png",
     "/resource:$(Join-Path $projectRoot 'assets\logo.png'),UndefinedSS.ServicesPrechecker.Assets.logo.png",
+    "/resource:$(Join-Path $projectRoot 'assets\hero-texture.png'),UndefinedSS.ServicesPrechecker.Assets.hero-texture.png",
+    "/resource:$(Join-Path $projectRoot 'assets\app-logo.png'),UndefinedSS.ServicesPrechecker.Assets.app-logo.png",
     "/resource:$(Join-Path $projectRoot 'assets\app.ico'),UndefinedSS.ServicesPrechecker.Assets.app.ico"
 )
 
