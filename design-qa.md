@@ -1,4 +1,4 @@
-# Product Design QA — v1.2.0
+# Product Design QA — v1.2.1
 
 ## Evidence
 
@@ -10,6 +10,7 @@
 - Focused hero comparison: `D:\Data\Docs\services-prechecker\qa\design-comparison-v1.2-hero.png`
 - Logo comparison: `D:\Data\Docs\services-prechecker\qa\logo-comparison-v1.2.png`
 - New icon scale strip: `D:\Data\Docs\services-prechecker\qa\app-logo-small-sizes.png`
+- Windows Shell icon extraction: `D:\Data\Docs\services-prechecker\qa\shell-icon-v1.2.1-final.png`
 
 The source visual is 1536 × 1024 pixels. The rendered WPF window is 1710 × 1140 pixels for a 1140 × 760 logical-pixel window at 150% Windows display scaling. The implementation was aspect-preservingly normalized to 1536 × 1024 before the side-by-side comparison. Both views represent the normal service-scan state in the same dark theme.
 
@@ -20,7 +21,7 @@ No actionable P0, P1, or P2 differences remain.
 - Fonts and typography: Microsoft YaHei UI preserves the Chinese display hierarchy and Segoe UI/Consolas provide the intended editorial and forensic labels. The hero title, required restart sentence, persistent warning, service states, and modal remain legible without clipping or awkward wrapping.
 - Spacing and layout rhythm: the hero now matches the selected option’s major-region proportion. It is one continuous 218-logical-pixel surface with a compact identity zone, primary copy, and readiness ledger. There is no hard image/text split, detached left card, or duplicate oversized logo.
 - Colors and visual tokens: the near-black, warm-ivory, muted-bronze, amber, and semantic service-state colors are consistent across the hero, cards, notice, modal, and controls. The generated map texture stays intentionally low contrast behind all UI copy.
-- Image quality and asset fidelity: the selected technical-map art direction is implemented with a dedicated raster hero texture rather than a stretched or awkwardly cropped Banner. The redesigned app mark uses a transparent high-resolution PNG in the UI and a multi-resolution ICO for Windows shell surfaces. No handcrafted SVG, inline drawing, placeholder asset, or transparency halo is present.
+- Image quality and asset fidelity: the selected technical-map art direction is implemented with a dedicated raster hero texture rather than a stretched or awkwardly cropped Banner. The redesigned app mark uses a transparent high-resolution PNG inside the UI and a contrast-safe dark squircle ICO for Windows shell surfaces. No handcrafted SVG, inline drawing, placeholder asset, or transparency halo is present.
 - Copy and content: the exact required sentence appears in the hero with “重启系统” emphasized. Pending and modal states continue to explain that the current boot session is invalid and only later checks after restart are effective.
 - Icons: the former thin nested-square icon was replaced with a bold standalone double-S forensic-gate mark. The 16, 20, 24, 32, 48, and 64-pixel previews preserve a recognizable silhouette and amber state accent.
 - Responsiveness and accessibility: the intended 1140 × 760 viewport has no overlap, clipping, or hidden controls. The minimum window size remains 980 × 700. Restart meaning is communicated through text as well as color, and all primary actions remain keyboard-focusable and exposed through Windows UI Automation.
@@ -32,6 +33,7 @@ Focused comparison was required because the Banner composition, logo sharpness, 
 1. Initial implementation — P2: the hero remained shorter than the selected visual target, weakening the selected masthead hierarchy. Fix: increased the hero from 190 to 218 logical pixels. Post-fix evidence in `design-comparison-v1.2.png` aligns the hero boundary and service summary with the reference.
 2. Initial implementation — P2: the 27-pixel information-card icon was being decoded from ICO and looked soft. Fix: use the transparent PNG logo for in-app surfaces and retain the ICO only for Windows executable metadata. Post-fix evidence in `implementation-v1.2-final.png` and `logo-comparison-v1.2.png` shows a crisp mark.
 3. Post-fix comparison: no overlapping text, awkward Banner crop, competing focal point, blurred in-app logo, or actionable fidelity drift remains.
+4. User-reported regression — P1: Windows Explorer continued showing the previous icon because the replacement EXE kept both the old `1.1.0.0` file version and the same cache key filename. Fix: update file/product metadata to `1.2.1`, build a uniquely named `ServicesPrechecker-v1.2.1.exe`, use a high-contrast shell-specific icon tile, and verify the result through `SHGetFileInfo`, the same Windows Shell icon path used by Explorer. Post-fix evidence is `shell-icon-v1.2.1-final.png`.
 
 ## Primary Interactions Tested
 
@@ -41,6 +43,7 @@ Focused comparison was required because the Banner composition, logo sharpness, 
 - Restart modal appearance and “我知道了” dismissal: passed.
 - Custom maximize/restore control: passed.
 - Custom close control: passed.
+- Windows Shell extraction of the signed, versioned EXE icon: passed.
 - Actual service mutation was not invoked during design QA to avoid changing the test computer’s service policy. The elevated enable path compiles and uses the verified restart marker, notice, pending states, and modal.
 
 ## Follow-up Polish

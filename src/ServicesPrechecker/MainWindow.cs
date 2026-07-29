@@ -80,7 +80,7 @@ namespace UndefinedSS.ServicesPrechecker
             };
             WindowChrome.SetWindowChrome(this, chrome);
 
-            ImageSource icon = LoadEmbeddedImage("UndefinedSS.ServicesPrechecker.Assets.app-logo.png");
+            ImageSource icon = LoadEmbeddedImage("UndefinedSS.ServicesPrechecker.Assets.app.ico");
             if (icon != null)
             {
                 Icon = icon;
@@ -211,7 +211,7 @@ namespace UndefinedSS.ServicesPrechecker
             };
             TextBlock versionText = new TextBlock
             {
-                Text = "v1.2.0  ·  FORENSICS READINESS",
+                Text = "v1.2.1  ·  FORENSICS READINESS",
                 VerticalAlignment = VerticalAlignment.Center,
                 Foreground = new SolidColorBrush(AccentColor),
                 FontFamily = new FontFamily("Segoe UI"),
@@ -372,7 +372,7 @@ namespace UndefinedSS.ServicesPrechecker
             };
             edition.Child = new TextBlock
             {
-                Text = "WINDOWS  ·  1.2",
+                Text = "WINDOWS  ·  1.2.1",
                 FontFamily = new FontFamily("Segoe UI"),
                 FontSize = 8,
                 FontWeight = FontWeights.SemiBold,

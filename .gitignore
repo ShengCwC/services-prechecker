@@ -10,4 +10,5 @@ dist/
 *.log
 .vs/
 qa/*.png
+qa/**/*.png
 tmp/

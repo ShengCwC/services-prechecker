@@ -20,9 +20,24 @@ if (-not $resolvedOutput.StartsWith($resolvedProject, [System.StringComparison]:
 
 New-Item -ItemType Directory -Path $resolvedOutput -Force | Out-Null
 
-$exePath = Join-Path $resolvedOutput "ServicesPrechecker.exe"
-$checksumPath = Join-Path $resolvedOutput "ServicesPrechecker.exe.sha256"
-$pdbPath = Join-Path $resolvedOutput "ServicesPrechecker.pdb"
+$assemblyInfoPath = Join-Path $projectRoot "src\ServicesPrechecker\AssemblyInfo.cs"
+$assemblyInfo = Get-Content -LiteralPath $assemblyInfoPath -Raw
+$versionMatch = [regex]::Match(
+    $assemblyInfo,
+    'AssemblyInformationalVersion\("(?<version>[^"]+)"\)')
+if (-not $versionMatch.Success) {
+    throw "AssemblyInformationalVersion was not found in $assemblyInfoPath"
+}
+
+$productVersion = $versionMatch.Groups["version"].Value
+if ($productVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$') {
+    throw "AssemblyInformationalVersion is not a release-safe version: $productVersion"
+}
+
+$executableName = "ServicesPrechecker-v$productVersion.exe"
+$exePath = Join-Path $resolvedOutput $executableName
+$checksumPath = "$exePath.sha256"
+$pdbPath = Join-Path $resolvedOutput "ServicesPrechecker-v$productVersion.pdb"
 
 foreach ($artifact in @($exePath, $checksumPath, $pdbPath)) {
     if (Test-Path -LiteralPath $artifact) {
@@ -74,7 +89,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $hash = (Get-FileHash -LiteralPath $exePath -Algorithm SHA256).Hash.ToLowerInvariant()
-"$hash  ServicesPrechecker.exe" | Set-Content -LiteralPath $checksumPath -Encoding ascii
+"$hash  $executableName" | Set-Content -LiteralPath $checksumPath -Encoding ascii
 
 Write-Host "Built: $exePath"
 Write-Host "SHA-256: $hash"

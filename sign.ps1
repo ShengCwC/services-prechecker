@@ -1,6 +1,6 @@
 [CmdletBinding(DefaultParameterSetName = "Pfx")]
 param(
-    [string]$ExecutablePath = "dist\ServicesPrechecker.exe",
+    [string]$ExecutablePath,
 
     [Parameter(Mandatory = $true, ParameterSetName = "Pfx")]
     [string]$PfxPath,
@@ -15,7 +15,24 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$resolvedExecutable = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot $ExecutablePath))
+if ([string]::IsNullOrWhiteSpace($ExecutablePath)) {
+    $candidate = Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot "dist") `
+        -Filter "ServicesPrechecker-v*.exe" |
+        Sort-Object LastWriteTimeUtc -Descending |
+        Select-Object -First 1
+    if ($null -eq $candidate) {
+        throw "No versioned ServicesPrechecker executable was found in dist."
+    }
+
+    $ExecutablePath = $candidate.FullName
+}
+
+$resolvedExecutable = if ([System.IO.Path]::IsPathRooted($ExecutablePath)) {
+    [System.IO.Path]::GetFullPath($ExecutablePath)
+}
+else {
+    [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot $ExecutablePath))
+}
 if (-not (Test-Path -LiteralPath $resolvedExecutable)) {
     throw "Executable not found: $resolvedExecutable"
 }
@@ -51,10 +68,10 @@ if ($signature.Status -notin @("Valid", "UnknownError")) {
 }
 
 $hash = (Get-FileHash -LiteralPath $resolvedExecutable -Algorithm SHA256).Hash.ToLowerInvariant()
-"$hash  ServicesPrechecker.exe" |
+$executableName = [System.IO.Path]::GetFileName($resolvedExecutable)
+"$hash  $executableName" |
     Set-Content -LiteralPath "$resolvedExecutable.sha256" -Encoding ascii
 
 Write-Host "Signed: $resolvedExecutable"
 Write-Host "Signer: $($signature.SignerCertificate.Subject)"
 Write-Host "Status: $($signature.Status)"
-

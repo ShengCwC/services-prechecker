@@ -22,7 +22,7 @@ Undefined SS Community 的 Windows 查端前置检查工具。它会在本机检
 
 ## 使用方法
 
-1. 从 GitHub Releases 下载 `ServicesPrechecker.exe`。
+1. 从 GitHub Releases 下载带版本号的 `ServicesPrechecker-v*.exe`。版本化文件名可避免 Windows 资源管理器沿用旧版图标缓存。
 2. 直接运行程序并查看七项服务的状态。读取状态不需要管理员权限。
 3. 如果存在未运行或已禁用的项目，点击“一键启用全部系统服务”。
 4. 在 Windows 用户账户控制提示中确认授权。程序会自动完成设置并再次检测。
@@ -44,7 +44,7 @@ Minecraft 查端通常判断的是本次电脑启动到查端人员远程连接�
 .\build.ps1
 ```
 
-构建产物位于 `dist\ServicesPrechecker.exe`。
+构建产物使用程序集版本生成唯一文件名，例如 `dist\ServicesPrechecker-v1.2.1.exe`。
 
 ## 代码签名
 

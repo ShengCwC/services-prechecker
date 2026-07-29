@@ -42,5 +42,5 @@ jobs:
         with:
           name: ServicesPrechecker-win-x64
           path: |
-            dist/ServicesPrechecker.exe
-            dist/ServicesPrechecker.exe.sha256
+            dist/ServicesPrechecker-v*.exe
+            dist/ServicesPrechecker-v*.exe.sha256
