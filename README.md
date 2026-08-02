@@ -64,7 +64,7 @@ Minecraft 查端通常判断的是本次电脑启动到查端人员远程连接�
 .\build.ps1
 ```
 
-构建产物使用程序集版本生成唯一文件名，例如 `dist\ServicesPrechecker-v1.4.0.exe`。
+构建产物使用程序集版本生成唯一文件名，例如 `dist\ServicesPrechecker-v1.4.1.exe`。
 
 ## 代码签名
 

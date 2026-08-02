@@ -1,4 +1,4 @@
-# Product Design QA — v1.4.0
+# Product Design QA — v1.4.1
 
 ## Evidence
 
@@ -15,6 +15,10 @@
 - HWID footer at minimum 980 × 700: `D:\Data\Docs\services-prechecker\qa\implementation-v1.3.0-hwid-980x700.png`
 - Update modal at 1140 × 760: `D:\Data\Docs\services-prechecker\qa\implementation-v1.4.0-update-1140x760.png`
 - Update modal at minimum 980 × 700: `D:\Data\Docs\services-prechecker\qa\implementation-v1.4.0-update-980x700.png`
+- v1.4.0 runtime small icon: `D:\Data\Docs\services-prechecker\qa\taskbar-icon-v1.4.1\before-small.png`
+- v1.4.1 runtime small icon: `D:\Data\Docs\services-prechecker\qa\taskbar-icon-v1.4.1\after-small.png`
+- v1.4.0 runtime large icon: `D:\Data\Docs\services-prechecker\qa\taskbar-icon-v1.4.1\before-big.png`
+- v1.4.1 runtime large icon: `D:\Data\Docs\services-prechecker\qa\taskbar-icon-v1.4.1\after-big.png`
 
 The source visual is 1536 × 1024 pixels. The rendered WPF window is 1710 × 1140 pixels for a 1140 × 760 logical-pixel window at 150% Windows display scaling. The implementation was aspect-preservingly normalized to 1536 × 1024 before the side-by-side comparison. Both views represent the normal service-scan state in the same dark theme.
 
@@ -32,6 +36,7 @@ No actionable P0, P1, or P2 differences remain.
 - HWID integration: the complete versioned identifier is geometrically centered in the existing 44-pixel footer between the ellipsized local-status message and right-aligned version label. “点击复制” remains plain text with no detached panel or copy button. At both tested sizes the identifier is complete, readable, and does not move adjacent content.
 - HWID states and accessibility: the text exposes a Button/Invoke pattern, keyboard focus, visible focus treatment, hand cursor, tooltip, and automation name/help text. Success, failure, and restoration use the same footprint, so feedback does not cause layout shift.
 - Update modal: current/latest versions, the first-party `dl.screenshare.cn` destination, “稍后”, and “前往下载” remain visible without wrapping or clipping at both supported sizes. A visible amber keyboard-focus ring is present, the obscured page is disabled while the modal is open, and restart warnings retain priority over update prompts.
+- Runtime taskbar icon: the window now decodes the largest frame from the multi-resolution ICO instead of flattening the first 16-pixel frame. At 150% display scaling, the 24-pixel small icon fills 22 × 22 pixels and the 48-pixel large icon fills 44 × 44 pixels; v1.4.0 filled only about 14 × 14 pixels on either canvas.
 
 Focused comparison was required because the Banner composition, logo sharpness, small forensic labels, and restart copy were too small to judge reliably in the full-view comparison. The full hero crop and icon scale strip were inspected separately.
 
@@ -41,6 +46,7 @@ Focused comparison was required because the Banner composition, logo sharpness, 
 2. Initial implementation — P2: the 27-pixel information-card icon was being decoded from ICO and looked soft. Fix: use the transparent PNG logo for in-app surfaces and retain the ICO only for Windows executable metadata. Post-fix evidence in `implementation-v1.2-final.png` and `logo-comparison-v1.2.png` shows a crisp mark.
 3. Post-fix comparison: no overlapping text, awkward Banner crop, competing focal point, blurred in-app logo, or actionable fidelity drift remains.
 4. User-reported regression — P1: Windows Explorer continued showing the previous icon because the replacement EXE kept both the old `1.1.0.0` file version and the same cache key filename. Fix: update file/product metadata to `1.2.1`, build a uniquely named `ServicesPrechecker-v1.2.1.exe`, use a high-contrast shell-specific icon tile, and verify the result through `SHGetFileInfo`, the same Windows Shell icon path used by Explorer. Post-fix evidence is `shell-icon-v1.2.1-final.png`.
+5. User-reported regression — P1: the running application appeared with an abnormally small taskbar icon at high DPI. The generic `BitmapImage` path decoded only the ICO's first 16 × 16 frame, then centered it without scaling inside Windows' 24 × 24 and 48 × 48 runtime icon canvases. Fix: decode the full ICO, select and freeze its 256 × 256 frame, and let WPF generate the DPI-sized window icons. `WM_GETICON` pixel-bound checks confirm the corrected fill ratio.
 
 ## Primary Interactions Tested
 
@@ -51,6 +57,7 @@ Focused comparison was required because the Banner composition, logo sharpness, 
 - Custom maximize/restore control: passed.
 - Custom close control: passed.
 - Windows Shell extraction of the signed, versioned EXE icon: passed.
+- Runtime `WM_GETICON` small/large icon dimensions and visible-content bounds at 150% scaling: passed.
 - Deterministic HWID vectors, source priority, normalization, placeholder rejection, standard 128-bit Crockford encoding, and exact public format: passed.
 - WMI exception/timeout injection, four-second total budget, pre-read MachineGuid fallback, and abandoned-task fault observation: passed.
 - Two independent application starts returned the same locally generated HWID: passed.

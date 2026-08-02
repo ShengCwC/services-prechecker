@@ -102,7 +102,9 @@ namespace UndefinedSS.ServicesPrechecker
             };
             WindowChrome.SetWindowChrome(this, chrome);
 
-            ImageSource icon = LoadEmbeddedImage("UndefinedSS.ServicesPrechecker.Assets.app.ico");
+            ImageSource icon = WindowIconLoader.LoadLargestFrame(
+                Assembly.GetExecutingAssembly(),
+                "UndefinedSS.ServicesPrechecker.Assets.app.ico");
             if (icon != null)
             {
                 Icon = icon;

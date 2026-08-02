@@ -30,6 +30,10 @@ jobs:
         shell: pwsh
         run: ./tests/run-service-policy-tests.ps1
 
+      - name: Test Windows taskbar icon loading
+        shell: pwsh
+        run: ./tests/run-window-icon-tests.ps1
+
       - name: Build standalone EXE
         shell: pwsh
         run: ./build.ps1
