@@ -1,4 +1,3 @@
-using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -21,18 +20,6 @@ namespace UndefinedSS.ServicesPrechecker
             TimeSpan timeout);
     }
 
-    internal interface IUpdateClock
-    {
-        DateTime UtcNow { get; }
-    }
-
-    internal interface IUpdateCheckCache
-    {
-        UpdateCheckCacheState Read();
-        void WriteSuccess(DateTime checkedAtUtc, string latestVersion);
-        void WriteFailure(DateTime failedAtUtc);
-    }
-
     internal sealed class UpdateHttpHeaders
     {
         public string UserAgent { get; set; }
@@ -50,13 +37,6 @@ namespace UndefinedSS.ServicesPrechecker
 
         public int StatusCode { get; private set; }
         public string Content { get; private set; }
-    }
-
-    internal sealed class UpdateCheckCacheState
-    {
-        public DateTime? LastSuccessfulCheckUtc { get; set; }
-        public DateTime? LastFailedCheckUtc { get; set; }
-        public string LatestVersion { get; set; }
     }
 
     internal sealed class UpdateCheckResult
@@ -100,10 +80,6 @@ namespace UndefinedSS.ServicesPrechecker
         private const string GitHubApiVersionHeader = "2022-11-28";
         private static readonly TimeSpan DefaultRequestTimeout =
             TimeSpan.FromSeconds(4);
-        private static readonly TimeSpan SuccessfulCacheLifetime =
-            TimeSpan.FromHours(24);
-        private static readonly TimeSpan FailureRetryDelay =
-            TimeSpan.FromHours(24);
         private static readonly Regex ReleaseVersionPattern = new Regex(
             @"^v(?<major>0|[1-9][0-9]*)\.(?<minor>0|[1-9][0-9]*)\.(?<patch>0|[1-9][0-9]*)$",
             RegexOptions.CultureInvariant);
@@ -112,40 +88,25 @@ namespace UndefinedSS.ServicesPrechecker
             RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
         private static readonly object ProductionCheckLock = new object();
+        // This task is scoped to the current process only. Every normal application
+        // launch starts a new process and therefore performs a fresh version check.
         private static Task<UpdateCheckResult> productionCheckTask;
 
         private readonly IUpdateHttpClient httpClient;
-        private readonly IUpdateCheckCache cache;
-        private readonly IUpdateClock clock;
         private readonly TimeSpan requestTimeout;
 
-        internal UpdateChecker(
-            IUpdateHttpClient httpClient,
-            IUpdateCheckCache cache,
-            IUpdateClock clock)
-            : this(httpClient, cache, clock, DefaultRequestTimeout)
+        internal UpdateChecker(IUpdateHttpClient httpClient)
+            : this(httpClient, DefaultRequestTimeout)
         {
         }
 
         internal UpdateChecker(
             IUpdateHttpClient httpClient,
-            IUpdateCheckCache cache,
-            IUpdateClock clock,
             TimeSpan requestTimeout)
         {
             if (httpClient == null)
             {
                 throw new ArgumentNullException("httpClient");
-            }
-
-            if (cache == null)
-            {
-                throw new ArgumentNullException("cache");
-            }
-
-            if (clock == null)
-            {
-                throw new ArgumentNullException("clock");
             }
 
             if (requestTimeout <= TimeSpan.Zero ||
@@ -157,8 +118,6 @@ namespace UndefinedSS.ServicesPrechecker
             }
 
             this.httpClient = httpClient;
-            this.cache = cache;
-            this.clock = clock;
             this.requestTimeout = requestTimeout;
         }
 
@@ -170,9 +129,7 @@ namespace UndefinedSS.ServicesPrechecker
                 if (productionCheckTask == null)
                 {
                     UpdateChecker checker = new UpdateChecker(
-                        new GitHubUpdateHttpClient(),
-                        new RegistryUpdateCheckCache(),
-                        new SystemUpdateClock());
+                        new GitHubUpdateHttpClient());
                     productionCheckTask = checker.CheckAsync(currentVersion);
                 }
 
@@ -189,35 +146,6 @@ namespace UndefinedSS.ServicesPrechecker
         {
             VersionNumber parsedCurrentVersion;
             if (!TryParseCurrentVersion(currentVersion, out parsedCurrentVersion))
-            {
-                return UpdateCheckResult.Unavailable();
-            }
-
-            DateTime nowUtc = EnsureUtc(clock.UtcNow);
-            UpdateCheckCacheState cacheState = SafeReadCache();
-            VersionNumber cachedLatestVersion;
-            if (cacheState != null &&
-                cacheState.LastSuccessfulCheckUtc.HasValue &&
-                IsWithinWindow(
-                    nowUtc,
-                    cacheState.LastSuccessfulCheckUtc.Value,
-                    SuccessfulCacheLifetime) &&
-                TryParseReleaseVersion(
-                    cacheState.LatestVersion,
-                    out cachedLatestVersion))
-            {
-                return CreateAvailableResult(
-                    parsedCurrentVersion,
-                    cachedLatestVersion,
-                    cacheState.LatestVersion);
-            }
-
-            if (cacheState != null &&
-                cacheState.LastFailedCheckUtc.HasValue &&
-                IsWithinWindow(
-                    nowUtc,
-                    cacheState.LastFailedCheckUtc.Value,
-                    FailureRetryDelay))
             {
                 return UpdateCheckResult.Unavailable();
             }
@@ -240,7 +168,6 @@ namespace UndefinedSS.ServicesPrechecker
                     requestTimeout);
                 if (requestTask == null)
                 {
-                    SafeWriteFailure(nowUtc);
                     return UpdateCheckResult.Unavailable();
                 }
 
@@ -250,7 +177,6 @@ namespace UndefinedSS.ServicesPrechecker
                 if (completedTask != requestTask)
                 {
                     ObserveFault(requestTask);
-                    SafeWriteFailure(nowUtc);
                     return UpdateCheckResult.Unavailable();
                 }
 
@@ -263,7 +189,6 @@ namespace UndefinedSS.ServicesPrechecker
                     throw;
                 }
 
-                SafeWriteFailure(nowUtc);
                 return UpdateCheckResult.Unavailable();
             }
 
@@ -276,11 +201,9 @@ namespace UndefinedSS.ServicesPrechecker
                     out latestVersion,
                     out parsedLatestVersion))
             {
-                SafeWriteFailure(nowUtc);
                 return UpdateCheckResult.Unavailable();
             }
 
-            SafeWriteSuccess(nowUtc, latestVersion);
             return CreateAvailableResult(
                 parsedCurrentVersion,
                 parsedLatestVersion,
@@ -402,62 +325,6 @@ namespace UndefinedSS.ServicesPrechecker
             return true;
         }
 
-        private static bool IsWithinWindow(
-            DateTime nowUtc,
-            DateTime recordedAtUtc,
-            TimeSpan lifetime)
-        {
-            TimeSpan age = nowUtc - EnsureUtc(recordedAtUtc);
-            return age >= TimeSpan.Zero && age < lifetime;
-        }
-
-        private UpdateCheckCacheState SafeReadCache()
-        {
-            try
-            {
-                return cache.Read();
-            }
-            catch (Exception exception)
-            {
-                if (IsFatal(exception))
-                {
-                    throw;
-                }
-
-                return null;
-            }
-        }
-
-        private void SafeWriteSuccess(DateTime checkedAtUtc, string latestVersion)
-        {
-            try
-            {
-                cache.WriteSuccess(checkedAtUtc, latestVersion);
-            }
-            catch (Exception exception)
-            {
-                if (IsFatal(exception))
-                {
-                    throw;
-                }
-            }
-        }
-
-        private void SafeWriteFailure(DateTime failedAtUtc)
-        {
-            try
-            {
-                cache.WriteFailure(failedAtUtc);
-            }
-            catch (Exception exception)
-            {
-                if (IsFatal(exception))
-                {
-                    throw;
-                }
-            }
-        }
-
         private static void ObserveFault(Task task)
         {
             task.ContinueWith(
@@ -478,21 +345,6 @@ namespace UndefinedSS.ServicesPrechecker
                 exception is StackOverflowException ||
                 exception is ThreadAbortException ||
                 exception is AccessViolationException;
-        }
-
-        private static DateTime EnsureUtc(DateTime value)
-        {
-            if (value.Kind == DateTimeKind.Utc)
-            {
-                return value;
-            }
-
-            if (value.Kind == DateTimeKind.Local)
-            {
-                return value.ToUniversalTime();
-            }
-
-            return DateTime.SpecifyKind(value, DateTimeKind.Utc);
         }
 
         private static string ReadCurrentAssemblyVersion()
@@ -558,101 +410,6 @@ namespace UndefinedSS.ServicesPrechecker
                     Major,
                     Minor,
                     Patch);
-            }
-        }
-
-        private sealed class SystemUpdateClock : IUpdateClock
-        {
-            public DateTime UtcNow
-            {
-                get { return DateTime.UtcNow; }
-            }
-        }
-
-        private sealed class RegistryUpdateCheckCache : IUpdateCheckCache
-        {
-            private const string RegistryPath =
-                @"Software\UndefinedSS\ServicesPrechecker\UpdateCheck";
-            private const string LastSuccessValueName = "LastSuccessUtc";
-            private const string LastFailureValueName = "LastFailureUtc";
-            private const string LatestVersionValueName = "LatestVersion";
-
-            public UpdateCheckCacheState Read()
-            {
-                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(
-                    RegistryPath,
-                    false))
-                {
-                    if (key == null)
-                    {
-                        return null;
-                    }
-
-                    return new UpdateCheckCacheState
-                    {
-                        LastSuccessfulCheckUtc = ParseRegistryDate(
-                            key.GetValue(LastSuccessValueName)),
-                        LastFailedCheckUtc = ParseRegistryDate(
-                            key.GetValue(LastFailureValueName)),
-                        LatestVersion = Convert.ToString(
-                            key.GetValue(LatestVersionValueName),
-                            CultureInfo.InvariantCulture)
-                    };
-                }
-            }
-
-            public void WriteSuccess(DateTime checkedAtUtc, string latestVersion)
-            {
-                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(
-                    RegistryPath,
-                    RegistryKeyPermissionCheck.ReadWriteSubTree))
-                {
-                    if (key == null)
-                    {
-                        return;
-                    }
-
-                    key.SetValue(
-                        LastSuccessValueName,
-                        EnsureUtc(checkedAtUtc).ToString("O", CultureInfo.InvariantCulture),
-                        RegistryValueKind.String);
-                    key.SetValue(
-                        LatestVersionValueName,
-                        latestVersion,
-                        RegistryValueKind.String);
-                    key.DeleteValue(LastFailureValueName, false);
-                }
-            }
-
-            public void WriteFailure(DateTime failedAtUtc)
-            {
-                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(
-                    RegistryPath,
-                    RegistryKeyPermissionCheck.ReadWriteSubTree))
-                {
-                    if (key != null)
-                    {
-                        key.SetValue(
-                            LastFailureValueName,
-                            EnsureUtc(failedAtUtc).ToString(
-                                "O",
-                                CultureInfo.InvariantCulture),
-                            RegistryValueKind.String);
-                    }
-                }
-            }
-
-            private static DateTime? ParseRegistryDate(object value)
-            {
-                DateTime parsed;
-                return DateTime.TryParseExact(
-                    Convert.ToString(value, CultureInfo.InvariantCulture),
-                    "O",
-                    CultureInfo.InvariantCulture,
-                    DateTimeStyles.RoundtripKind,
-                    out parsed)
-                    ? (DateTime?)EnsureUtc(parsed)
-                    : null;
             }
         }
 

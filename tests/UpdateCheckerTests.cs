@@ -6,24 +6,15 @@ using UndefinedSS.ServicesPrechecker;
 internal static class UpdateCheckerTests
 {
     private static int failures;
-    private static readonly DateTime TestNow = new DateTime(
-        2026,
-        8,
-        2,
-        3,
-        0,
-        0,
-        DateTimeKind.Utc);
 
     private static void Main()
     {
         TestRequestContractAndNumericalComparison();
         TestEquivalentAndOlderVersions();
-        TestSuccessfulCache();
-        TestFailureBackoff();
+        TestEveryCheckUsesNetwork();
+        TestFailureDoesNotSuppressNextCheck();
         TestSilentFailures();
         TestTimeout();
-        TestCacheExceptionsAreNonFatal();
 
         if (failures != 0)
         {
@@ -39,8 +30,7 @@ internal static class UpdateCheckerTests
         FakeHttpClient httpClient = Responding(
             200,
             "{\"tag_name\":\"v1.10.0\",\"html_url\":\"https://attacker.invalid/file.exe\"}");
-        MemoryCache cache = new MemoryCache();
-        UpdateChecker checker = CreateChecker(httpClient, cache);
+        UpdateChecker checker = CreateChecker(httpClient);
 
         UpdateCheckResult result = checker.CheckAsync("1.9.0")
             .GetAwaiter().GetResult();
@@ -70,107 +60,69 @@ internal static class UpdateCheckerTests
             httpClient.LastHeaders.UserAgent,
             "descriptive User-Agent without credentials");
         AssertEqual(TimeSpan.FromSeconds(4), httpClient.LastTimeout, "four-second timeout");
-        AssertEqual(TestNow, cache.SuccessAtUtc, "success time is cached");
-        AssertEqual("v1.10.0", cache.SuccessVersion, "latest version is cached");
-        AssertEqual(0, cache.FailureWriteCount, "success does not write failure backoff");
     }
 
     private static void TestEquivalentAndOlderVersions()
     {
         UpdateCheckResult equivalent = CreateChecker(
-            Responding(200, "{\"tag_name\": \"v1.3.0\"}"),
-            new MemoryCache()).CheckAsync("1.3.0.0").GetAwaiter().GetResult();
+            Responding(200, "{\"tag_name\": \"v1.3.0\"}"))
+            .CheckAsync("1.3.0.0").GetAwaiter().GetResult();
         AssertTrue(equivalent.IsCheckAvailable, "three-part remote equals four-part local");
         AssertFalse(equivalent.IsUpdateAvailable, "1.3.0 is not newer than 1.3.0.0");
 
         UpdateCheckResult older = CreateChecker(
-            Responding(200, "{\"tag_name\":\"v1.2.9\"}"),
-            new MemoryCache()).CheckAsync("v1.3.0").GetAwaiter().GetResult();
+            Responding(200, "{\"tag_name\":\"v1.2.9\"}"))
+            .CheckAsync("v1.3.0").GetAwaiter().GetResult();
         AssertFalse(older.IsUpdateAvailable, "older release does not prompt");
 
         FakeHttpClient invalidCurrentClient = Responding(
             200,
             "{\"tag_name\":\"v2.0.0\"}");
         UpdateCheckResult invalidCurrent = CreateChecker(
-            invalidCurrentClient,
-            new MemoryCache()).CheckAsync("version one").GetAwaiter().GetResult();
+            invalidCurrentClient).CheckAsync("version one").GetAwaiter().GetResult();
         AssertFalse(invalidCurrent.IsCheckAvailable, "invalid local version is silent");
         AssertEqual(0, invalidCurrentClient.CallCount, "invalid local version never uses network");
     }
 
-    private static void TestSuccessfulCache()
+    private static void TestEveryCheckUsesNetwork()
     {
-        MemoryCache freshCache = new MemoryCache();
-        freshCache.State = new UpdateCheckCacheState
-        {
-            LastSuccessfulCheckUtc = TestNow - TimeSpan.FromHours(23),
-            LatestVersion = "v2.0.0"
-        };
-        FakeHttpClient unusedClient = new FakeHttpClient();
-        unusedClient.Exception = new InvalidOperationException("Network must not be used.");
-
-        UpdateCheckResult cached = CreateChecker(unusedClient, freshCache)
-            .CheckAsync("1.3.0").GetAwaiter().GetResult();
-        AssertTrue(cached.IsUpdateAvailable, "fresh successful cache can report update");
-        AssertEqual("v2.0.0", cached.LatestVersion, "cached release tag is returned");
-        AssertEqual(0, unusedClient.CallCount, "24-hour success cache avoids network");
-
-        MemoryCache boundaryCache = new MemoryCache();
-        boundaryCache.State = new UpdateCheckCacheState
-        {
-            LastSuccessfulCheckUtc = TestNow - TimeSpan.FromHours(24),
-            LatestVersion = "v2.0.0"
-        };
-        FakeHttpClient refreshClient = Responding(
+        FakeHttpClient httpClient = Responding(
             200,
-            "{\"tag_name\":\"v2.1.0\"}");
-        UpdateCheckResult refreshed = CreateChecker(refreshClient, boundaryCache)
-            .CheckAsync("1.3.0").GetAwaiter().GetResult();
-        AssertEqual(1, refreshClient.CallCount, "cache refreshes at 24-hour boundary");
-        AssertEqual("v2.1.0", refreshed.LatestVersion, "refreshed version is returned");
+            "{\"tag_name\":\"v1.4.1\"}");
+        UpdateChecker checker = CreateChecker(httpClient);
 
-        MemoryCache malformedCache = new MemoryCache();
-        malformedCache.State = new UpdateCheckCacheState
-        {
-            LastSuccessfulCheckUtc = TestNow - TimeSpan.FromHours(1),
-            LatestVersion = "not-a-version"
-        };
-        FakeHttpClient malformedRefresh = Responding(
+        UpdateCheckResult first = checker.CheckAsync("1.4.0")
+            .GetAwaiter().GetResult();
+        AssertTrue(first.IsUpdateAvailable, "first launch discovers the update");
+
+        httpClient.Response = new UpdateHttpResponse(
             200,
-            "{\"tag_name\":\"v1.4.0\"}");
-        CreateChecker(malformedRefresh, malformedCache)
-            .CheckAsync("1.3.0").GetAwaiter().GetResult();
-        AssertEqual(1, malformedRefresh.CallCount, "malformed cache is ignored");
+            "{\"tag_name\":\"v1.4.2\"}");
+        UpdateCheckResult second = checker.CheckAsync("1.4.0")
+            .GetAwaiter().GetResult();
+        AssertTrue(second.IsUpdateAvailable, "later launch checks again");
+        AssertEqual("v1.4.2", second.LatestVersion, "later launch sees the new release");
+        AssertEqual(2, httpClient.CallCount, "each independent check uses the network");
     }
 
-    private static void TestFailureBackoff()
+    private static void TestFailureDoesNotSuppressNextCheck()
     {
-        MemoryCache recentFailureCache = new MemoryCache();
-        recentFailureCache.State = new UpdateCheckCacheState
-        {
-            LastFailedCheckUtc = TestNow -
-                TimeSpan.FromHours(23) - TimeSpan.FromMinutes(59)
-        };
-        FakeHttpClient unusedClient = Responding(
-            200,
-            "{\"tag_name\":\"v9.0.0\"}");
-        UpdateCheckResult backedOff = CreateChecker(unusedClient, recentFailureCache)
-            .CheckAsync("1.3.0").GetAwaiter().GetResult();
-        AssertFalse(backedOff.IsCheckAvailable, "recent failure is silently unavailable");
-        AssertEqual(0, unusedClient.CallCount, "24-hour failure backoff avoids network");
+        FakeHttpClient httpClient = new FakeHttpClient();
+        httpClient.Exception = new InvalidOperationException("Injected network failure.");
+        UpdateChecker checker = CreateChecker(httpClient);
 
-        MemoryCache expiredFailureCache = new MemoryCache();
-        expiredFailureCache.State = new UpdateCheckCacheState
-        {
-            LastFailedCheckUtc = TestNow - TimeSpan.FromHours(24)
-        };
-        FakeHttpClient retryClient = Responding(
+        UpdateCheckResult failed = checker.CheckAsync("1.4.0")
+            .GetAwaiter().GetResult();
+        AssertFalse(failed.IsCheckAvailable, "failure is silent");
+
+        httpClient.Exception = null;
+        httpClient.Response = new UpdateHttpResponse(
             200,
-            "{\"tag_name\":\"v1.4.0\"}");
-        UpdateCheckResult retried = CreateChecker(retryClient, expiredFailureCache)
-            .CheckAsync("1.3.0").GetAwaiter().GetResult();
-        AssertTrue(retried.IsUpdateAvailable, "check retries at 24-hour boundary");
-        AssertEqual(1, retryClient.CallCount, "expired failure performs request");
+            "{\"tag_name\":\"v1.4.1\"}");
+        UpdateCheckResult recovered = checker.CheckAsync("1.4.0")
+            .GetAwaiter().GetResult();
+        AssertTrue(recovered.IsUpdateAvailable, "next launch retries after a failure");
+        AssertEqual(2, httpClient.CallCount, "failure creates no cross-launch backoff");
     }
 
     private static void TestSilentFailures()
@@ -210,11 +162,8 @@ internal static class UpdateCheckerTests
     {
         FakeHttpClient blockedClient = new FakeHttpClient();
         blockedClient.PendingResponse = new TaskCompletionSource<UpdateHttpResponse>();
-        MemoryCache cache = new MemoryCache();
         UpdateChecker checker = new UpdateChecker(
             blockedClient,
-            cache,
-            new FixedClock(TestNow),
             TimeSpan.FromMilliseconds(30));
 
         Stopwatch stopwatch = Stopwatch.StartNew();
@@ -226,43 +175,21 @@ internal static class UpdateCheckerTests
         AssertTrue(
             stopwatch.Elapsed < TimeSpan.FromMilliseconds(500),
             "checker enforces total request timeout");
-        AssertEqual(1, cache.FailureWriteCount, "timeout starts failure backoff");
         AssertEqual(TimeSpan.FromMilliseconds(30), blockedClient.LastTimeout, "timeout is passed to client");
-    }
-
-    private static void TestCacheExceptionsAreNonFatal()
-    {
-        MemoryCache brokenReadCache = new MemoryCache();
-        brokenReadCache.ThrowOnRead = true;
-        UpdateCheckResult readFailureResult = CreateChecker(
-            Responding(200, "{\"tag_name\":\"v1.4.0\"}"),
-            brokenReadCache).CheckAsync("1.3.0").GetAwaiter().GetResult();
-        AssertTrue(readFailureResult.IsUpdateAvailable, "cache read failure does not block check");
-
-        MemoryCache brokenWriteCache = new MemoryCache();
-        brokenWriteCache.ThrowOnWrite = true;
-        UpdateCheckResult writeFailureResult = CreateChecker(
-            Responding(200, "{\"tag_name\":\"v1.4.0\"}"),
-            brokenWriteCache).CheckAsync("1.3.0").GetAwaiter().GetResult();
-        AssertTrue(writeFailureResult.IsUpdateAvailable, "cache write failure does not hide update");
     }
 
     private static void AssertSilentFailure(FakeHttpClient httpClient, string name)
     {
-        MemoryCache cache = new MemoryCache();
-        UpdateCheckResult result = CreateChecker(httpClient, cache)
+        UpdateCheckResult result = CreateChecker(httpClient)
             .CheckAsync("1.3.0").GetAwaiter().GetResult();
         AssertFalse(result.IsCheckAvailable, name);
         AssertFalse(result.IsUpdateAvailable, name + " does not prompt");
         AssertEqual(null, result.LatestVersion, name + " has no displayed version");
-        AssertEqual(1, cache.FailureWriteCount, name + " starts 24-hour backoff");
     }
 
-    private static UpdateChecker CreateChecker(
-        FakeHttpClient httpClient,
-        MemoryCache cache)
+    private static UpdateChecker CreateChecker(FakeHttpClient httpClient)
     {
-        return new UpdateChecker(httpClient, cache, new FixedClock(TestNow));
+        return new UpdateChecker(httpClient);
     }
 
     private static FakeHttpClient Responding(int statusCode, string content)
@@ -270,16 +197,6 @@ internal static class UpdateCheckerTests
         FakeHttpClient client = new FakeHttpClient();
         client.Response = new UpdateHttpResponse(statusCode, content);
         return client;
-    }
-
-    private sealed class FixedClock : IUpdateClock
-    {
-        internal FixedClock(DateTime utcNow)
-        {
-            UtcNow = utcNow;
-        }
-
-        public DateTime UtcNow { get; private set; }
     }
 
     private sealed class FakeHttpClient : IUpdateHttpClient
@@ -322,56 +239,6 @@ internal static class UpdateCheckerTests
             }
 
             return Task.FromResult(Response);
-        }
-    }
-
-    private sealed class MemoryCache : IUpdateCheckCache
-    {
-        public UpdateCheckCacheState State { get; set; }
-        public bool ThrowOnRead { get; set; }
-        public bool ThrowOnWrite { get; set; }
-        public DateTime SuccessAtUtc { get; private set; }
-        public string SuccessVersion { get; private set; }
-        public int FailureWriteCount { get; private set; }
-
-        public UpdateCheckCacheState Read()
-        {
-            if (ThrowOnRead)
-            {
-                throw new InvalidOperationException("Injected cache read failure.");
-            }
-
-            return State;
-        }
-
-        public void WriteSuccess(DateTime checkedAtUtc, string latestVersion)
-        {
-            if (ThrowOnWrite)
-            {
-                throw new InvalidOperationException("Injected cache write failure.");
-            }
-
-            SuccessAtUtc = checkedAtUtc;
-            SuccessVersion = latestVersion;
-            State = new UpdateCheckCacheState
-            {
-                LastSuccessfulCheckUtc = checkedAtUtc,
-                LatestVersion = latestVersion
-            };
-        }
-
-        public void WriteFailure(DateTime failedAtUtc)
-        {
-            if (ThrowOnWrite)
-            {
-                throw new InvalidOperationException("Injected cache write failure.");
-            }
-
-            FailureWriteCount++;
-            State = new UpdateCheckCacheState
-            {
-                LastFailedCheckUtc = failedAtUtc
-            };
         }
     }
 

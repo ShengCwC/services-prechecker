@@ -1,4 +1,4 @@
-# Product Design QA — v1.4.1
+# Product Design QA — v1.4.2
 
 ## Evidence
 
@@ -19,6 +19,8 @@
 - v1.4.1 runtime small icon: `D:\Data\Docs\services-prechecker\qa\taskbar-icon-v1.4.1\after-small.png`
 - v1.4.0 runtime large icon: `D:\Data\Docs\services-prechecker\qa\taskbar-icon-v1.4.1\before-big.png`
 - v1.4.1 runtime large icon: `D:\Data\Docs\services-prechecker\qa\taskbar-icon-v1.4.1\after-big.png`
+- v1.4.2 update modal at 1140 × 760: `D:\Data\Docs\services-prechecker\qa\implementation-v1.4.2-update-1140x760.png`
+- v1.4.2 update modal at minimum 980 × 700: `D:\Data\Docs\services-prechecker\qa\implementation-v1.4.2-update-980x700.png`
 
 The source visual is 1536 × 1024 pixels. The rendered WPF window is 1710 × 1140 pixels for a 1140 × 760 logical-pixel window at 150% Windows display scaling. The implementation was aspect-preservingly normalized to 1536 × 1024 before the side-by-side comparison. Both views represent the normal service-scan state in the same dark theme.
 
@@ -47,6 +49,7 @@ Focused comparison was required because the Banner composition, logo sharpness, 
 3. Post-fix comparison: no overlapping text, awkward Banner crop, competing focal point, blurred in-app logo, or actionable fidelity drift remains.
 4. User-reported regression — P1: Windows Explorer continued showing the previous icon because the replacement EXE kept both the old `1.1.0.0` file version and the same cache key filename. Fix: update file/product metadata to `1.2.1`, build a uniquely named `ServicesPrechecker-v1.2.1.exe`, use a high-contrast shell-specific icon tile, and verify the result through `SHGetFileInfo`, the same Windows Shell icon path used by Explorer. Post-fix evidence is `shell-icon-v1.2.1-final.png`.
 5. User-reported regression — P1: the running application appeared with an abnormally small taskbar icon at high DPI. The generic `BitmapImage` path decoded only the ICO's first 16 × 16 frame, then centered it without scaling inside Windows' 24 × 24 and 48 × 48 runtime icon canvases. Fix: decode the full ICO, select and freeze its 256 × 256 frame, and let WPF generate the DPI-sized window icons. `WM_GETICON` pixel-bound checks confirm the corrected fill ratio.
+6. User-reported regression — P1: v1.4.0 could suppress a newly available update for 24 hours after either an earlier failed request or a successful request that cached the then-current version. Fix: remove the cross-process registry cache and failure backoff. Each normal application launch now makes one fresh asynchronous attempt, while the elevated service helper remains offline and failures stay silent.
 
 ## Primary Interactions Tested
 
@@ -63,8 +66,8 @@ Focused comparison was required because the Banner composition, logo sharpness, 
 - Two independent application starts returned the same locally generated HWID: passed.
 - HWID control format, full untruncated text, UI Automation exposure, keyboard focusability, and feedback restoration: passed.
 - Clipboard contention recovery: passed. A separate thread held the Windows clipboard for 650 ms; the application serialized the click, retried with progressive backoff after contention was released, and copied only the exact `USS1-…` value.
-- Update checker request contract, numeric comparison, strict JSON parsing, 4-second timeout, fixed first-party download URL, 24-hour success/failure throttle, cache errors, rate limits, invalid tags, and offline failures: passed.
-- Live GitHub latest-release check: passed and returned `v1.3.0` during QA. The local v1.4.0 build correctly treated it as older, while an injected v1.5.0 result rendered the update modal at both supported sizes.
+- Update checker request contract, per-launch refresh, numeric comparison, strict JSON parsing, 4-second timeout, fixed first-party download URL, rate limits, invalid tags, offline failures, and recovery on the next launch: passed.
+- Live GitHub latest-release check: passed and returned `v1.4.1` during v1.4.2 QA. Two separate processes using `v1.4.0` as the comparison version both discovered the update despite an existing recent `LastFailureUtc` registry value; the obsolete registry values remained unchanged and no longer affected behavior. An injected newer result continues to render the update modal at both supported sizes.
 - Healthy-service restart policy: passed. A successful no-op no longer invalidates the current boot; configuration, runtime-state, and driver restart changes still establish the restart gate.
 - Actual service mutation was not invoked during design QA to avoid changing the test computer’s service policy. The elevated enable path compiles and uses the verified restart marker, notice, pending states, and modal.
 
