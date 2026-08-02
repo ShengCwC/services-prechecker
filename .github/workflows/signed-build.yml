@@ -34,6 +34,10 @@ jobs:
         shell: pwsh
         run: ./tests/run-update-tests.ps1
 
+      - name: Test launch telemetry
+        shell: pwsh
+        run: ./tests/run-launch-telemetry-tests.ps1
+
       - name: Test service state policies
         shell: pwsh
         run: ./tests/run-service-policy-tests.ps1

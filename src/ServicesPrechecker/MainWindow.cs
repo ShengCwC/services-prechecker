@@ -765,6 +765,11 @@ namespace UndefinedSS.ServicesPrechecker
 
         private async void HandleLoaded(object sender, RoutedEventArgs e)
         {
+            if (!autoEnable)
+            {
+                LaunchTelemetry.RecordInBackground(ApplicationVersion);
+            }
+
             Task<UpdateCheckResult> updateCheckTask = autoEnable
                 ? null
                 : UpdateChecker.CheckForUpdateAsync(ApplicationVersion);
