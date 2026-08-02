@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -47,13 +48,29 @@ namespace UndefinedSS.ServicesPrechecker
         private readonly Button enableButton;
         private readonly Button refreshButton;
         private readonly Grid modalLayer;
+        private readonly Border modalPanel;
+        private readonly TextBlock modalEyebrow;
         private readonly TextBlock modalTitle;
         private readonly TextBlock modalBody;
+        private readonly TextBlock modalStrong;
+        private readonly Button modalSecondaryButton;
         private readonly Button modalConfirmButton;
         private bool isBusy;
         private bool restartPending;
         private string hardwareIdValue;
         private int hardwareIdFeedbackGeneration;
+        private bool isHardwareIdCopying;
+        private ModalPurpose modalPurpose;
+        private IInputElement focusBeforeModal;
+        private UpdateCheckResult activeUpdateResult;
+        private UpdateCheckResult pendingUpdateResult;
+
+        private enum ModalPurpose
+        {
+            None,
+            Restart,
+            Update
+        }
 
         public MainWindow(bool autoEnable)
         {
@@ -210,7 +227,7 @@ namespace UndefinedSS.ServicesPrechecker
             footerLayout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             activityText = new TextBlock
             {
-                Text = "服务检查与 HWID 生成均在本机完成，不会上传任何数据。",
+                Text = "服务与 HWID 本机处理；仅版本检测联网且不上传设备数据。",
                 VerticalAlignment = VerticalAlignment.Center,
                 Foreground = new SolidColorBrush(SecondaryTextColor),
                 FontSize = 10,
@@ -285,7 +302,7 @@ namespace UndefinedSS.ServicesPrechecker
             WindowChrome.SetIsHitTestVisibleInChrome(modalLayer, true);
             root.Children.Add(modalLayer);
 
-            Border modal = new Border
+            modalPanel = new Border
             {
                 Width = 500,
                 Background = new SolidColorBrush(Color.FromRgb(20, 21, 20)),
@@ -297,7 +314,7 @@ namespace UndefinedSS.ServicesPrechecker
                 VerticalAlignment = VerticalAlignment.Center
             };
             StackPanel modalContent = new StackPanel();
-            TextBlock modalEyebrow = new TextBlock
+            modalEyebrow = new TextBlock
             {
                 Text = "RESTART REQUIRED",
                 FontFamily = new FontFamily("Segoe UI"),
@@ -321,7 +338,7 @@ namespace UndefinedSS.ServicesPrechecker
                 TextWrapping = TextWrapping.Wrap,
                 Foreground = new SolidColorBrush(Color.FromRgb(196, 190, 180))
             };
-            TextBlock modalStrong = new TextBlock
+            modalStrong = new TextBlock
             {
                 Text = "请重启系统后，再开始下一次查端。",
                 Margin = new Thickness(0, 13, 0, 0),
@@ -329,22 +346,27 @@ namespace UndefinedSS.ServicesPrechecker
                 FontWeight = FontWeights.SemiBold,
                 Foreground = new SolidColorBrush(RestartColor)
             };
+            StackPanel modalActions = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 22, 0, 0)
+            };
+            modalSecondaryButton = CreateButton("稍后", false);
+            modalSecondaryButton.Margin = new Thickness(0, 0, 10, 0);
+            modalSecondaryButton.Visibility = Visibility.Collapsed;
+            modalSecondaryButton.Click += HandleModalSecondaryClick;
             modalConfirmButton = CreateButton("我知道了", true);
-            modalConfirmButton.Margin = new Thickness(0, 22, 0, 0);
-            modalConfirmButton.HorizontalAlignment = HorizontalAlignment.Right;
-            modalConfirmButton.Click +=
-                delegate
-                {
-                    modalLayer.Visibility = Visibility.Collapsed;
-                    enableButton.Focus();
-                };
+            modalConfirmButton.Click += HandleModalConfirmClick;
+            modalActions.Children.Add(modalSecondaryButton);
+            modalActions.Children.Add(modalConfirmButton);
             modalContent.Children.Add(modalEyebrow);
             modalContent.Children.Add(modalTitle);
             modalContent.Children.Add(modalBody);
             modalContent.Children.Add(modalStrong);
-            modalContent.Children.Add(modalConfirmButton);
-            modal.Child = modalContent;
-            modalLayer.Children.Add(modal);
+            modalContent.Children.Add(modalActions);
+            modalPanel.Child = modalContent;
+            modalLayer.Children.Add(modalPanel);
 
             UpdateRestartNotice();
             Loaded += HandleLoaded;
@@ -741,6 +763,9 @@ namespace UndefinedSS.ServicesPrechecker
 
         private async void HandleLoaded(object sender, RoutedEventArgs e)
         {
+            Task<UpdateCheckResult> updateCheckTask = autoEnable
+                ? null
+                : UpdateChecker.CheckForUpdateAsync(ApplicationVersion);
             Task hardwareIdLoadTask = LoadHardwareIdAsync();
             await RefreshSnapshots();
             if (autoEnable)
@@ -753,6 +778,25 @@ namespace UndefinedSS.ServicesPrechecker
             }
 
             await hardwareIdLoadTask;
+
+            if (updateCheckTask != null)
+            {
+                UpdateCheckResult updateResult = null;
+                try
+                {
+                    updateResult = await updateCheckTask;
+                }
+                catch
+                {
+                    // Version checking is optional and must never affect readiness checks.
+                }
+
+                if (IsLoaded && IsVisible &&
+                    updateResult != null && updateResult.IsUpdateAvailable)
+                {
+                    ShowUpdateModal(updateResult);
+                }
+            }
         }
 
         private async Task LoadHardwareIdAsync()
@@ -825,30 +869,24 @@ namespace UndefinedSS.ServicesPrechecker
 
         private async void HandleHardwareIdClick(object sender, RoutedEventArgs e)
         {
-            if (string.IsNullOrWhiteSpace(hardwareIdValue))
+            if (string.IsNullOrWhiteSpace(hardwareIdValue) || isHardwareIdCopying)
             {
                 return;
             }
 
-            bool copied = false;
-            for (int attempt = 0; attempt < 3; attempt++)
+            isHardwareIdCopying = true;
+            hardwareIdButton.IsEnabled = false;
+            bool copied;
+            try
             {
-                bool shouldRetry = false;
-                try
-                {
-                    Clipboard.SetText(hardwareIdValue);
-                    copied = true;
-                    break;
-                }
-                catch (ExternalException)
-                {
-                    shouldRetry = true;
-                }
-
-                if (shouldRetry && attempt < 2)
-                {
-                    await Task.Delay(60);
-                }
+                copied = await ClipboardWriter.TrySetUnicodeTextWithRetryAsync(
+                    hardwareIdValue);
+            }
+            finally
+            {
+                isHardwareIdCopying = false;
+                hardwareIdButton.IsEnabled =
+                    !string.IsNullOrWhiteSpace(hardwareIdValue);
             }
 
             int feedbackGeneration = ++hardwareIdFeedbackGeneration;
@@ -950,7 +988,7 @@ namespace UndefinedSS.ServicesPrechecker
             RenderSnapshots(snapshots);
             string completedMessage = restartPending
                 ? "服务设置已改变：请重启系统；当前启动周期的查端仍按异常处理。"
-                : "检查完成。服务检查与 HWID 均在本机生成，不会上传任何数据。";
+                : "检查完成。服务与 HWID 本机处理；仅版本检测联网且不上传设备数据。";
             SetBusy(false, completedMessage);
         }
 
@@ -978,23 +1016,46 @@ namespace UndefinedSS.ServicesPrechecker
                 return;
             }
 
-            if (results.Any(delegate(EnableResult item) { return item.Success; }))
+            bool restartRequiredByOperation =
+                ServiceManager.RequiresRestartAfterEnable(results);
+            if (restartRequiredByOperation)
             {
                 RestartRequirement.MarkPendingForCurrentBoot();
                 restartPending = true;
             }
 
-            IList<ServiceSnapshot> snapshots = await Task.Run(
-                delegate
-                {
-                    return ServiceManager.GetSnapshots();
-                });
-            RenderSnapshots(snapshots);
+            IList<ServiceSnapshot> snapshots = null;
+            string snapshotError = null;
+            try
+            {
+                snapshots = await Task.Run(
+                    delegate
+                    {
+                        return ServiceManager.GetSnapshots();
+                    });
+            }
+            catch (Exception exception)
+            {
+                snapshotError = exception.Message;
+            }
+
+            if (snapshots != null)
+            {
+                RenderSnapshots(snapshots);
+            }
             UpdateRestartNotice();
 
             int failed = results.Count(delegate(EnableResult item) { return !item.Success; });
             string message;
-            if (failed == 0)
+            if (!restartRequiredByOperation && !restartPending && failed == 0)
+            {
+                message = "全部所需服务已处于正确状态，本次操作未作更改，无需重启。";
+            }
+            else if (!restartRequiredByOperation && restartPending && failed == 0)
+            {
+                message = "全部服务当前已运行，但本次启动周期仍无效；必须重启电脑。";
+            }
+            else if (failed == 0)
             {
                 message = "全部系统服务已配置；必须重启电脑，后续查端才可生效。";
             }
@@ -1009,8 +1070,17 @@ namespace UndefinedSS.ServicesPrechecker
                     " 未能启用。处理失败项目后仍必须重启电脑。";
             }
 
+            if (!string.IsNullOrWhiteSpace(snapshotError))
+            {
+                message += " 服务复检失败：" + snapshotError +
+                    "；重启要求仍然有效。";
+            }
+
             SetBusy(false, message);
-            ShowRestartModal(failed);
+            if (restartPending)
+            {
+                ShowRestartModal(restartRequiredByOperation ? failed : -1);
+            }
         }
 
         private void RenderSnapshots(IList<ServiceSnapshot> snapshots)
@@ -1308,6 +1378,7 @@ namespace UndefinedSS.ServicesPrechecker
         private static ControlTemplate BuildButtonTemplate()
         {
             FrameworkElementFactory border = new FrameworkElementFactory(typeof(Border));
+            border.Name = "focusBorder";
             border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Button.BackgroundProperty));
             border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Button.BorderBrushProperty));
             border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Button.BorderThicknessProperty));
@@ -1321,6 +1392,23 @@ namespace UndefinedSS.ServicesPrechecker
 
             ControlTemplate template = new ControlTemplate(typeof(Button));
             template.VisualTree = border;
+
+            Trigger focusTrigger = new Trigger
+            {
+                Property = Button.IsKeyboardFocusedProperty,
+                Value = true
+            };
+            focusTrigger.Setters.Add(
+                new Setter(
+                    Border.BorderBrushProperty,
+                    new SolidColorBrush(RestartColor),
+                    "focusBorder"));
+            focusTrigger.Setters.Add(
+                new Setter(
+                    Border.BorderThicknessProperty,
+                    new Thickness(2),
+                    "focusBorder"));
+            template.Triggers.Add(focusTrigger);
             return template;
         }
 
@@ -1394,6 +1482,30 @@ namespace UndefinedSS.ServicesPrechecker
 
         private void ShowRestartModal(int failedCount)
         {
+            if (modalLayer.Visibility == Visibility.Visible &&
+                modalPurpose == ModalPurpose.Update &&
+                activeUpdateResult != null)
+            {
+                pendingUpdateResult = activeUpdateResult;
+            }
+
+            PrepareModal(ModalPurpose.Restart);
+            activeUpdateResult = null;
+            modalPurpose = ModalPurpose.Restart;
+            modalPanel.BorderBrush = new SolidColorBrush(Color.FromRgb(104, 82, 57));
+            modalEyebrow.Text = "RESTART REQUIRED";
+            modalEyebrow.Foreground = new SolidColorBrush(RestartColor);
+            modalStrong.Text = "请重启系统后，再开始下一次查端。";
+            modalStrong.Foreground = new SolidColorBrush(RestartColor);
+            modalStrong.Visibility = Visibility.Visible;
+            modalSecondaryButton.Visibility = Visibility.Collapsed;
+            modalConfirmButton.Content = "我知道了";
+            AutomationProperties.SetName(modalPanel, "必须重启系统");
+            AutomationProperties.SetHelpText(
+                modalPanel,
+                "当前启动周期的查端仍按异常处理，重启后的后续查端才有效");
+            AutomationProperties.SetName(modalConfirmButton, "关闭重启提示");
+
             if (failedCount < 0)
             {
                 modalTitle.Text = "仍需重启电脑";
@@ -1413,8 +1525,149 @@ namespace UndefinedSS.ServicesPrechecker
                     "已完成可用的服务设置，但仍有服务未能启用。解决失败项目后也必须重启系统；当前启动周期的查端仍会按照“异常”处理。";
             }
 
-            modalLayer.Visibility = Visibility.Visible;
             modalConfirmButton.Focus();
+        }
+
+        private void ShowUpdateModal(UpdateCheckResult updateResult)
+        {
+            if (updateResult == null || !updateResult.IsUpdateAvailable)
+            {
+                return;
+            }
+
+            if (modalLayer.Visibility == Visibility.Visible &&
+                modalPurpose == ModalPurpose.Restart)
+            {
+                pendingUpdateResult = updateResult;
+                return;
+            }
+
+            PrepareModal(ModalPurpose.Update);
+            activeUpdateResult = updateResult;
+            modalPanel.BorderBrush = new SolidColorBrush(Color.FromRgb(83, 78, 68));
+            modalEyebrow.Text = "UPDATE AVAILABLE";
+            modalEyebrow.Foreground = new SolidColorBrush(AccentColor);
+            modalTitle.Text = "发现新版本 " + FormatVersionLabel(updateResult.LatestVersion);
+            modalBody.Text =
+                "当前版本为 " + FormatVersionLabel(ApplicationVersion) + "，最新版本为 " +
+                FormatVersionLabel(updateResult.LatestVersion) + "。建议更新后再进行后续查端。";
+            modalStrong.Text = "官方下载地址：dl.screenshare.cn";
+            modalStrong.Foreground = new SolidColorBrush(AccentColor);
+            modalStrong.Visibility = Visibility.Visible;
+            modalSecondaryButton.Content = "稍后";
+            modalSecondaryButton.Visibility = Visibility.Visible;
+            modalConfirmButton.Content = "前往下载";
+            AutomationProperties.SetName(modalPanel, "发现 Services Prechecker 新版本");
+            AutomationProperties.SetHelpText(
+                modalPanel,
+                "可稍后处理，或在默认浏览器中打开 Undefined SS 官方文件下载地址");
+            AutomationProperties.SetName(modalSecondaryButton, "稍后更新");
+            AutomationProperties.SetName(modalConfirmButton, "前往下载最新版本");
+            AutomationProperties.SetHelpText(
+                modalConfirmButton,
+                "在默认浏览器中打开 Undefined SS 官方文件下载地址");
+            modalConfirmButton.Focus();
+        }
+
+        private void PrepareModal(ModalPurpose purpose)
+        {
+            if (modalLayer.Visibility != Visibility.Visible)
+            {
+                focusBeforeModal = Keyboard.FocusedElement;
+            }
+
+            modalPurpose = purpose;
+            windowFrame.IsEnabled = false;
+            modalLayer.Visibility = Visibility.Visible;
+        }
+
+        private void HandleModalConfirmClick(object sender, RoutedEventArgs e)
+        {
+            if (modalPurpose != ModalPurpose.Update)
+            {
+                DismissModal(true);
+                return;
+            }
+
+            try
+            {
+                ProcessStartInfo startInfo = new ProcessStartInfo
+                {
+                    FileName = UpdateChecker.DownloadUrl,
+                    UseShellExecute = true
+                };
+                Process.Start(startInfo);
+                DismissModal(false);
+            }
+            catch (Exception exception)
+            {
+                if (exception is OutOfMemoryException ||
+                    exception is StackOverflowException ||
+                    exception is AccessViolationException)
+                {
+                    throw;
+                }
+
+                modalBody.Text =
+                    "无法打开默认浏览器。请稍后重试，或手动访问：\n" +
+                    UpdateChecker.DownloadUrl;
+                modalStrong.Text = "未下载或执行任何文件。";
+                modalConfirmButton.Content = "重试";
+                modalConfirmButton.Focus();
+            }
+        }
+
+        private void HandleModalSecondaryClick(object sender, RoutedEventArgs e)
+        {
+            DismissModal(false);
+        }
+
+        private void DismissModal(bool showPendingUpdate)
+        {
+            modalLayer.Visibility = Visibility.Collapsed;
+            modalPurpose = ModalPurpose.None;
+            activeUpdateResult = null;
+            windowFrame.IsEnabled = true;
+
+            IInputElement focusTarget = focusBeforeModal;
+            focusBeforeModal = null;
+            if (focusTarget != null)
+            {
+                Keyboard.Focus(focusTarget);
+            }
+            else
+            {
+                enableButton.Focus();
+            }
+
+            if (showPendingUpdate && pendingUpdateResult != null)
+            {
+                ShowPendingUpdateAfterDismissal();
+            }
+        }
+
+        private async void ShowPendingUpdateAfterDismissal()
+        {
+            UpdateCheckResult updateResult = pendingUpdateResult;
+            pendingUpdateResult = null;
+            await Task.Delay(180);
+            if (IsLoaded && IsVisible && updateResult != null)
+            {
+                ShowUpdateModal(updateResult);
+            }
+        }
+
+        private static string FormatVersionLabel(string version)
+        {
+            if (string.IsNullOrWhiteSpace(version))
+            {
+                return "未知";
+            }
+
+            string trimmed = version.Trim();
+            return trimmed.StartsWith("v", StringComparison.OrdinalIgnoreCase)
+                ? trimmed
+                : "v" + trimmed;
         }
 
         private void SetBusy(bool busy, string activity)
@@ -1445,7 +1698,7 @@ namespace UndefinedSS.ServicesPrechecker
         {
             if (e.Key == Key.Escape && modalLayer.Visibility == Visibility.Visible)
             {
-                modalLayer.Visibility = Visibility.Collapsed;
+                DismissModal(modalPurpose == ModalPurpose.Restart);
                 e.Handled = true;
             }
         }

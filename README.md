@@ -1,6 +1,6 @@
 # Services Prechecker
 
-Undefined SS Community 的 Windows 查端前置检查工具。它会在本机检查取证准备所需的系统服务，并可在一次管理员授权后恢复正确的启动方式、启动相关服务。程序还会在本机生成用于设备识别的 HWID。
+Undefined SS Community 的 Windows 查端前置检查工具。它会在本机检查取证准备所需的系统服务，并可在一次管理员授权后恢复正确的启动方式、启动相关服务。程序还会在本机生成用于设备识别的 HWID，并在后台检查是否存在新版本。
 
 > **重要：启用任何所需服务后都必须重启 Windows。** 当前启动周期内的查端仍会按照“异常”处理；只有重启系统后的后续查端才有效。
 
@@ -22,14 +22,23 @@ Undefined SS Community 的 Windows 查端前置检查工具。它会在本机检
 
 ## 使用方法
 
-1. 从 GitHub Releases 下载带版本号的 `ServicesPrechecker-v*.exe`。版本化文件名可避免 Windows 资源管理器沿用旧版图标缓存。
+1. 从 Undefined SS 官方下载地址获取带版本号的 `ServicesPrechecker-v*.exe`。版本化文件名可避免 Windows 资源管理器沿用旧版图标缓存。
 2. 直接运行程序并查看七项服务的状态。读取状态不需要管理员权限。
 3. 如果存在未运行或已禁用的项目，点击“一键启用全部系统服务”。
 4. 在 Windows 用户账户控制提示中确认授权。程序会自动完成设置并再次检测。
 5. 完成设置后必须重启电脑。不要在当前启动周期继续查端；本次结果仍会按照“异常”处理。
 6. 如需提供设备标识，点击底栏中的“点击复制 · HWID …”；剪贴板中只会写入以 `USS1-` 开头的 HWID。
+7. 检测到新版本时，可选择“稍后”或“前往下载”；后者只会在默认浏览器中打开官方文件直链，不会自动执行下载文件。
 
-程序不会连接远程设备，不会采集文件，也不会上传任何数据；服务检查、服务设置与 HWID 生成均在当前电脑完成。
+程序不会连接远程设备或采集文件。服务检查、服务设置与 HWID 生成均在当前电脑完成；仅版本检测会访问 GitHub Releases，且不会发送 HWID、系统服务状态或查端结果。与普通 HTTPS 请求一样，服务端会看到网络出口 IP；请求的 User-Agent 只包含软件名称和当前版本。只有用户点击“前往下载”时，程序才会打开 `https://dl.screenshare.cn/services-prechecker`。
+
+## 版本检查
+
+程序在普通启动时异步查询 GitHub Releases 的最新正式版本，不使用账号或访问令牌，也不会阻塞服务检测。网络不可用、请求超时或返回内容无效时会静默跳过，不影响其余功能。无论检查成功或失败，24 小时内都不会重复联网，以减少公共网络出口和 GitHub API 的压力。
+
+版本号按数字形式比较，不使用字符串排序。检测到新版本时才显示应用内弹窗；若同时需要提示重启，重启提示优先，关闭后再显示更新。下载地址固定为 Undefined SS 官方文件直链 `https://dl.screenshare.cn/services-prechecker`，不会采用 GitHub Release 的下载地址，也不会在后台自动下载或执行任何文件。
+
+目前版本元数据仍来自 GitHub。部分中国大陆网络若无法访问 GitHub API，版本检测会静默跳过；待官方下载域名完成部署后，可进一步改用同域名的轻量版本清单作为主来源或备用来源。
 
 ## HWID
 
@@ -55,7 +64,7 @@ Minecraft 查端通常判断的是本次电脑启动到查端人员远程连接�
 .\build.ps1
 ```
 
-构建产物使用程序集版本生成唯一文件名，例如 `dist\ServicesPrechecker-v1.3.0.exe`。
+构建产物使用程序集版本生成唯一文件名，例如 `dist\ServicesPrechecker-v1.4.0.exe`。
 
 ## 代码签名
 
@@ -73,6 +82,7 @@ Minecraft 查端通常判断的是本次电脑启动到查端人员远程连接�
 
 请勿把 PFX 文件或密码提交到仓库。GitHub Actions 可通过
 `SIGNING_CERTIFICATE_BASE64` 和 `SIGNING_CERTIFICATE_PASSWORD` 两个仓库密钥对构建产物签名。
+拉取请求只生成名称中明确标注 `unsigned-test-build` 的测试包，PR 工作流完全不引用签名密钥。签名位于独立的 `workflow_run` 工作流，只接受 `main` 的成功构建，并绑定 `code-signing` Environment。配置受保护 Environment、两个签名密钥和仓库变量 `ENABLE_SIGNED_CI=true` 后才会生成可分发的签名产物；建议为该 Environment 设置人工批准。
 
 当前发布包附带社区自签名证书用于校验 Authenticode 签名与文件完整性；它不具备公共 CA 信任链或 SmartScreen 信誉。面向公众分发时，应在 GitHub Secrets 中配置受信任代码签名机构颁发的证书。
 

@@ -61,32 +61,12 @@ namespace UndefinedSS.ServicesPrechecker
 
             snapshot.StartTypeText = GetStartTypeText(startType.Value);
 
-            if (startType.Value == 4)
-            {
-                snapshot.VisualState = ServiceVisualState.Disabled;
-                snapshot.StatusText = "已禁用";
-            }
-
             try
             {
                 using (ServiceController controller = new ServiceController(definition.ServiceName))
                 {
                     ServiceControllerStatus status = controller.Status;
-                    if (status == ServiceControllerStatus.Running)
-                    {
-                        snapshot.VisualState = ServiceVisualState.Running;
-                        snapshot.StatusText = "正在运行";
-                    }
-                    else if (status == ServiceControllerStatus.StartPending)
-                    {
-                        snapshot.VisualState = ServiceVisualState.Stopped;
-                        snapshot.StatusText = "正在启动";
-                    }
-                    else if (snapshot.VisualState != ServiceVisualState.Disabled)
-                    {
-                        snapshot.VisualState = ServiceVisualState.Stopped;
-                        snapshot.StatusText = "未运行";
-                    }
+                    ApplyObservedState(snapshot, startType.Value, status);
                 }
             }
             catch (InvalidOperationException exception)
@@ -103,6 +83,74 @@ namespace UndefinedSS.ServicesPrechecker
             }
 
             return snapshot;
+        }
+
+        internal static void ApplyObservedState(
+            ServiceSnapshot snapshot,
+            int startType,
+            ServiceControllerStatus status)
+        {
+            if (snapshot == null || snapshot.Definition == null)
+            {
+                throw new ArgumentNullException("snapshot");
+            }
+
+            if (startType != snapshot.Definition.DesiredStartType)
+            {
+                snapshot.VisualState = startType == 4
+                    ? ServiceVisualState.Disabled
+                    : ServiceVisualState.Stopped;
+                snapshot.StatusText = startType == 4
+                    ? "已禁用"
+                    : "启动方式异常";
+                snapshot.Detail =
+                    "当前启动方式为" + GetStartTypeText(startType) +
+                    "，应为" + GetStartTypeText(snapshot.Definition.DesiredStartType);
+                if (status == ServiceControllerStatus.Running)
+                {
+                    snapshot.Detail += "；服务虽暂时运行，重启后仍可能不可用";
+                }
+
+                return;
+            }
+
+            if (status == ServiceControllerStatus.Running)
+            {
+                snapshot.VisualState = ServiceVisualState.Running;
+                snapshot.StatusText = "正在运行";
+            }
+            else if (status == ServiceControllerStatus.StartPending)
+            {
+                snapshot.VisualState = ServiceVisualState.Stopped;
+                snapshot.StatusText = "正在启动";
+            }
+            else
+            {
+                snapshot.VisualState = ServiceVisualState.Stopped;
+                snapshot.StatusText = "未运行";
+            }
+        }
+
+        internal static bool RequiresRestartAfterEnable(
+            IEnumerable<EnableResult> results)
+        {
+            if (results == null)
+            {
+                return false;
+            }
+
+            foreach (EnableResult result in results)
+            {
+                if (result != null &&
+                    (result.ConfigurationChanged ||
+                     result.RuntimeStateChanged ||
+                     result.RequiresRestart))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         public static IList<EnableResult> EnableAll()
@@ -157,6 +205,7 @@ namespace UndefinedSS.ServicesPrechecker
                 {
                     key.SetValue("Start", definition.DesiredStartType, RegistryValueKind.DWord);
                     key.Flush();
+                    result.ConfigurationChanged = true;
                 }
             }
             catch (Exception exception)
@@ -178,9 +227,11 @@ namespace UndefinedSS.ServicesPrechecker
                 using (ServiceController controller = new ServiceController(definition.ServiceName))
                 {
                     controller.Refresh();
-                    if (controller.Status != ServiceControllerStatus.Running)
+                    bool wasRunning = controller.Status == ServiceControllerStatus.Running;
+                    if (!wasRunning)
                     {
                         controller.Start();
+                        result.RuntimeStateChanged = true;
                         controller.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(12));
                     }
 

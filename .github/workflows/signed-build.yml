@@ -1,0 +1,65 @@
+name: Signed build
+
+on:
+  workflow_run:
+    workflows:
+      - Build
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+jobs:
+  sign-main-build:
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_branch == 'main' &&
+          vars.ENABLE_SIGNED_CI == 'true' }}
+    runs-on: windows-2022
+    environment: code-signing
+
+    steps:
+      - name: Checkout verified main commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Test HWID algorithm
+        shell: pwsh
+        run: ./tests/run-hwid-tests.ps1
+
+      - name: Test update checker
+        shell: pwsh
+        run: ./tests/run-update-tests.ps1
+
+      - name: Test service state policies
+        shell: pwsh
+        run: ./tests/run-service-policy-tests.ps1
+
+      - name: Build standalone EXE
+        shell: pwsh
+        run: ./build.ps1
+
+      - name: Sign and verify EXE
+        shell: pwsh
+        env:
+          SIGNING_CERTIFICATE_BASE64: ${{ secrets.SIGNING_CERTIFICATE_BASE64 }}
+          SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_CERTIFICATE_BASE64)) {
+            throw "The protected code-signing environment is missing its certificate secret."
+          }
+
+          $pfx = Join-Path $env:RUNNER_TEMP "code-signing.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGNING_CERTIFICATE_BASE64))
+          ./sign.ps1 -PfxPath $pfx -PfxPassword $env:SIGNING_CERTIFICATE_PASSWORD
+
+      - name: Upload signed artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ServicesPrechecker-win-x64
+          path: |
+            dist/ServicesPrechecker-v*.exe
+            dist/ServicesPrechecker-v*.exe.sha256

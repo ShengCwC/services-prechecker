@@ -54,6 +54,7 @@ $references = @(
     (Join-Path $frameworkDirectory "System.Core.dll"),
     (Join-Path $frameworkDirectory "System.Management.dll"),
     (Join-Path $frameworkDirectory "System.ServiceProcess.dll"),
+    (Join-Path $frameworkDirectory "System.Web.Extensions.dll"),
     (Join-Path $frameworkDirectory "WPF\WindowsBase.dll"),
     (Join-Path $frameworkDirectory "WPF\PresentationCore.dll"),
     (Join-Path $frameworkDirectory "WPF\PresentationFramework.dll"),

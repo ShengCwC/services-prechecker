@@ -38,7 +38,12 @@ if (-not (Test-Path -LiteralPath $resolvedExecutable)) {
 }
 
 if ($PSCmdlet.ParameterSetName -eq "Pfx") {
-    $resolvedPfx = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot $PfxPath))
+    $resolvedPfx = if ([System.IO.Path]::IsPathRooted($PfxPath)) {
+        [System.IO.Path]::GetFullPath($PfxPath)
+    }
+    else {
+        [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot $PfxPath))
+    }
     if (-not (Test-Path -LiteralPath $resolvedPfx)) {
         throw "PFX file not found: $resolvedPfx"
     }
@@ -63,8 +68,23 @@ $signature = Set-AuthenticodeSignature `
     -HashAlgorithm SHA256 `
     -TimestampServer $TimestampServer
 
-if ($signature.Status -notin @("Valid", "UnknownError")) {
-    throw "Signing failed: $($signature.Status) - $($signature.StatusMessage)"
+$verifiedSignature = Get-AuthenticodeSignature -LiteralPath $resolvedExecutable
+if ($null -eq $verifiedSignature.SignerCertificate -or
+    $verifiedSignature.SignatureType -ne "Authenticode") {
+    throw "Signing failed: the executable does not contain an Authenticode signature."
+}
+
+if ($verifiedSignature.SignerCertificate.Thumbprint -ne $certificate.Thumbprint) {
+    throw "Signing failed: the embedded signer certificate does not match the selected certificate."
+}
+
+if (-not [string]::IsNullOrWhiteSpace($TimestampServer) -and
+    $null -eq $verifiedSignature.TimeStamperCertificate) {
+    throw "Signing failed: the executable does not contain a trusted timestamp signature."
+}
+
+if ($verifiedSignature.Status -notin @("Valid", "UnknownError")) {
+    throw "Signing failed: $($verifiedSignature.Status) - $($verifiedSignature.StatusMessage)"
 }
 
 $hash = (Get-FileHash -LiteralPath $resolvedExecutable -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -73,5 +93,7 @@ $executableName = [System.IO.Path]::GetFileName($resolvedExecutable)
     Set-Content -LiteralPath "$resolvedExecutable.sha256" -Encoding ascii
 
 Write-Host "Signed: $resolvedExecutable"
-Write-Host "Signer: $($signature.SignerCertificate.Subject)"
-Write-Host "Status: $($signature.Status)"
+Write-Host "Signer: $($verifiedSignature.SignerCertificate.Subject)"
+Write-Host "Signer thumbprint: $($verifiedSignature.SignerCertificate.Thumbprint)"
+Write-Host "Timestamp signer: $($verifiedSignature.TimeStamperCertificate.Subject)"
+Write-Host "Status: $($verifiedSignature.Status)"
