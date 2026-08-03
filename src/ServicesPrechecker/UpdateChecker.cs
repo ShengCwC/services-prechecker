@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Net;
+using System.Net.Cache;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -74,8 +75,11 @@ namespace UndefinedSS.ServicesPrechecker
         internal const string DownloadUrl =
             "https://dl.screenshare.cn/services-prechecker";
 
-        private const string LatestReleaseApiUrl =
+        private const string FirstPartyReleaseManifestUrl =
+            "https://undefined-ss-downloads.smfsheng.workers.dev/release.json";
+        private const string GitHubLatestReleaseApiUrl =
             "https://api.github.com/repos/ShengCwC/services-prechecker/releases/latest";
+        private const string JsonAcceptHeader = "application/json";
         private const string GitHubAcceptHeader = "application/vnd.github+json";
         private const string GitHubApiVersionHeader = "2022-11-28";
         private static readonly TimeSpan DefaultRequestTimeout =
@@ -83,11 +87,29 @@ namespace UndefinedSS.ServicesPrechecker
         private static readonly Regex ReleaseVersionPattern = new Regex(
             @"^v(?<major>0|[1-9][0-9]*)\.(?<minor>0|[1-9][0-9]*)\.(?<patch>0|[1-9][0-9]*)$",
             RegexOptions.CultureInvariant);
+        private static readonly Regex ManifestVersionPattern = new Regex(
+            @"^(?<major>0|[1-9][0-9]*)\.(?<minor>0|[1-9][0-9]*)\.(?<patch>0|[1-9][0-9]*)$",
+            RegexOptions.CultureInvariant);
         private static readonly Regex CurrentVersionPattern = new Regex(
             @"^v?(?<major>0|[1-9][0-9]*)\.(?<minor>0|[1-9][0-9]*)\.(?<patch>0|[1-9][0-9]*)(?:\.(?<revision>[0-9]+))?$",
             RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
         private static readonly object ProductionCheckLock = new object();
+        private static readonly UpdateSource[] UpdateSources =
+        {
+            new UpdateSource(
+                FirstPartyReleaseManifestUrl,
+                "version",
+                false,
+                JsonAcceptHeader,
+                null),
+            new UpdateSource(
+                GitHubLatestReleaseApiUrl,
+                "tag_name",
+                true,
+                GitHubAcceptHeader,
+                GitHubApiVersionHeader)
+        };
         // This task is scoped to the current process only. Every normal application
         // launch starts a new process and therefore performs a fresh version check.
         private static Task<UpdateCheckResult> productionCheckTask;
@@ -129,7 +151,7 @@ namespace UndefinedSS.ServicesPrechecker
                 if (productionCheckTask == null)
                 {
                     UpdateChecker checker = new UpdateChecker(
-                        new GitHubUpdateHttpClient());
+                        new WebUpdateHttpClient());
                     productionCheckTask = checker.CheckAsync(currentVersion);
                 }
 
@@ -150,12 +172,30 @@ namespace UndefinedSS.ServicesPrechecker
                 return UpdateCheckResult.Unavailable();
             }
 
+            foreach (UpdateSource source in UpdateSources)
+            {
+                UpdateCheckResult result = await TryCheckSourceAsync(
+                    parsedCurrentVersion,
+                    source).ConfigureAwait(false);
+                if (result != null)
+                {
+                    return result;
+                }
+            }
+
+            return UpdateCheckResult.Unavailable();
+        }
+
+        private async Task<UpdateCheckResult> TryCheckSourceAsync(
+            VersionNumber parsedCurrentVersion,
+            UpdateSource source)
+        {
             UpdateHttpHeaders headers = new UpdateHttpHeaders
             {
                 UserAgent = "UndefinedSS-ServicesPrechecker/" +
                     parsedCurrentVersion.ToString(),
-                Accept = GitHubAcceptHeader,
-                GitHubApiVersion = GitHubApiVersionHeader
+                Accept = source.Accept,
+                GitHubApiVersion = source.GitHubApiVersion
             };
 
             UpdateHttpResponse response;
@@ -163,12 +203,12 @@ namespace UndefinedSS.ServicesPrechecker
             try
             {
                 requestTask = httpClient.GetAsync(
-                    new Uri(LatestReleaseApiUrl),
+                    source.Uri,
                     headers,
                     requestTimeout);
                 if (requestTask == null)
                 {
-                    return UpdateCheckResult.Unavailable();
+                    return null;
                 }
 
                 Task completedTask = await Task.WhenAny(
@@ -177,7 +217,7 @@ namespace UndefinedSS.ServicesPrechecker
                 if (completedTask != requestTask)
                 {
                     ObserveFault(requestTask);
-                    return UpdateCheckResult.Unavailable();
+                    return null;
                 }
 
                 response = await requestTask.ConfigureAwait(false);
@@ -189,7 +229,7 @@ namespace UndefinedSS.ServicesPrechecker
                     throw;
                 }
 
-                return UpdateCheckResult.Unavailable();
+                return null;
             }
 
             string latestVersion;
@@ -198,10 +238,12 @@ namespace UndefinedSS.ServicesPrechecker
                 response.StatusCode != (int)HttpStatusCode.OK ||
                 !TryReadLatestVersion(
                     response.Content,
+                    source.VersionPropertyName,
+                    source.RequiresVPrefix,
                     out latestVersion,
                     out parsedLatestVersion))
             {
-                return UpdateCheckResult.Unavailable();
+                return null;
             }
 
             return CreateAvailableResult(
@@ -222,6 +264,8 @@ namespace UndefinedSS.ServicesPrechecker
 
         private static bool TryReadLatestVersion(
             string json,
+            string versionPropertyName,
+            bool requiresVPrefix,
             out string latestVersion,
             out VersionNumber parsedVersion)
         {
@@ -239,10 +283,10 @@ namespace UndefinedSS.ServicesPrechecker
                 serializer.MaxJsonLength = 1024 * 1024;
                 Dictionary<string, object> root =
                     serializer.DeserializeObject(json) as Dictionary<string, object>;
-                object tagName;
+                object versionValue;
                 if (root == null ||
-                    !root.TryGetValue("tag_name", out tagName) ||
-                    (value = tagName as string) == null)
+                    !root.TryGetValue(versionPropertyName, out versionValue) ||
+                    (value = versionValue as string) == null)
                 {
                     return false;
                 }
@@ -257,17 +301,21 @@ namespace UndefinedSS.ServicesPrechecker
                 return false;
             }
 
-            if (!TryParseReleaseVersion(value, out parsedVersion))
+            if (!TryParseReleaseVersion(
+                    value,
+                    requiresVPrefix,
+                    out parsedVersion))
             {
                 return false;
             }
 
-            latestVersion = value;
+            latestVersion = "v" + parsedVersion.ToString();
             return true;
         }
 
         private static bool TryParseReleaseVersion(
             string value,
+            bool requiresVPrefix,
             out VersionNumber parsedVersion)
         {
             parsedVersion = default(VersionNumber);
@@ -276,7 +324,9 @@ namespace UndefinedSS.ServicesPrechecker
                 return false;
             }
 
-            Match match = ReleaseVersionPattern.Match(value);
+            Match match = requiresVPrefix
+                ? ReleaseVersionPattern.Match(value)
+                : ManifestVersionPattern.Match(value);
             return match.Success && TryCreateVersion(match, out parsedVersion);
         }
 
@@ -413,7 +463,30 @@ namespace UndefinedSS.ServicesPrechecker
             }
         }
 
-        private sealed class GitHubUpdateHttpClient : IUpdateHttpClient
+        private sealed class UpdateSource
+        {
+            internal UpdateSource(
+                string url,
+                string versionPropertyName,
+                bool requiresVPrefix,
+                string accept,
+                string gitHubApiVersion)
+            {
+                Uri = new Uri(url);
+                VersionPropertyName = versionPropertyName;
+                RequiresVPrefix = requiresVPrefix;
+                Accept = accept;
+                GitHubApiVersion = gitHubApiVersion;
+            }
+
+            internal Uri Uri { get; private set; }
+            internal string VersionPropertyName { get; private set; }
+            internal bool RequiresVPrefix { get; private set; }
+            internal string Accept { get; private set; }
+            internal string GitHubApiVersion { get; private set; }
+        }
+
+        private sealed class WebUpdateHttpClient : IUpdateHttpClient
         {
             public async Task<UpdateHttpResponse> GetAsync(
                 Uri uri,
@@ -424,9 +497,14 @@ namespace UndefinedSS.ServicesPrechecker
                 request.Method = "GET";
                 request.Accept = headers.Accept;
                 request.UserAgent = headers.UserAgent;
-                request.Headers["X-GitHub-Api-Version"] =
-                    headers.GitHubApiVersion;
+                if (!string.IsNullOrWhiteSpace(headers.GitHubApiVersion))
+                {
+                    request.Headers["X-GitHub-Api-Version"] =
+                        headers.GitHubApiVersion;
+                }
                 request.AllowAutoRedirect = true;
+                request.CachePolicy = new RequestCachePolicy(
+                    RequestCacheLevel.NoCacheNoStore);
                 request.AutomaticDecompression =
                     DecompressionMethods.GZip | DecompressionMethods.Deflate;
                 int timeoutMilliseconds = Math.Max(
