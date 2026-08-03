@@ -164,7 +164,7 @@ namespace UndefinedSS.ServicesPrechecker
             StackPanel summaryPanel = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             summaryText = new TextBlock
             {
-                Text = "正在检查系统服务…",
+                Text = "正在检查取证数据源…",
                 FontSize = 19,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = new SolidColorBrush(PrimaryTextColor)
@@ -188,7 +188,7 @@ namespace UndefinedSS.ServicesPrechecker
             refreshButton = CreateButton("重新检测", false);
             refreshButton.Margin = new Thickness(0, 0, 9, 0);
             refreshButton.Click += HandleRefreshClick;
-            enableButton = CreateButton("一键启用全部取证数据源", true);
+            enableButton = CreateButton("一键启用全部数据源", true);
             enableButton.Click += HandleEnableClick;
             actions.Children.Add(refreshButton);
             actions.Children.Add(enableButton);
@@ -1928,7 +1928,7 @@ namespace UndefinedSS.ServicesPrechecker
             isBusy = busy;
             refreshButton.IsEnabled = !busy;
             enableButton.IsEnabled = !busy;
-            enableButton.Content = busy ? "正在处理…" : "一键启用全部取证数据源";
+            enableButton.Content = busy ? "正在处理…" : "一键启用全部数据源";
             activityText.Text = activity;
             Cursor = busy ? Cursors.Wait : Cursors.Arrow;
         }

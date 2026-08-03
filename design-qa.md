@@ -1,4 +1,4 @@
-# Product Design QA — v1.5.1
+# Product Design QA — v1.5.2
 
 ## Evidence
 
@@ -27,6 +27,7 @@
 - v1.5.1 themed scrollbar at 1140 × 840: `D:\Data\Docs\services-prechecker\qa\implementation-v1.5.1-scrollbar-1140x840.png`
 - v1.5.1 themed scrollbar at minimum 980 × 700: `D:\Data\Docs\services-prechecker\qa\implementation-v1.5.1-scrollbar-980x700.png`
 - Same-state scrollbar comparison: `D:\Data\Docs\services-prechecker\qa\comparison-v1.5.1-scrollbar-before-after.png`
+- v1.5.2 synchronized data-source copy at 1140 × 840: `D:\Data\Docs\services-prechecker\qa\implementation-v1.5.2-copy-1140x840.png`
 
 The source visual is 1536 × 1024 pixels. The rendered WPF window is 1710 × 1140 pixels for a 1140 × 760 logical-pixel window at 150% Windows display scaling. The implementation was aspect-preservingly normalized to 1536 × 1024 before the side-by-side comparison. Both views represent the normal service-scan state in the same dark theme.
 
@@ -48,6 +49,7 @@ No actionable P0, P1, or P2 differences remain.
 - Forensic-source integration: ShimCache, Amcache, and UserAssist use the same card grammar as the seven service checks, bringing the summary to ten readiness conditions without introducing a separate panel. The cards remain readable in four columns at both supported widths and move inside the existing vertical scroll region when height is constrained.
 - Minimum-size footer behavior: the centered HWID and right-aligned version remain complete at 980 × 700. The lower-priority privacy sentence may ellipsize on the left at this minimum width, but it does not overlap the interactive HWID or version label; its full wording is available at the default 1140 × 840 size.
 - Scrollbar integration: the light Windows-default gutter and arrow buttons have been replaced with a 12-pixel dark forensic rail and centered five-pixel warm-gray thumb. The control now recedes behind card states at rest, becomes clearer on hover, and uses the existing amber warning color while dragging or keyboard-focused. The rail retains native WPF Track paging commands and a 38-pixel minimum thumb rather than becoming a decorative or undersized affordance.
+- Data-source wording: the primary action now reads “一键启用全部数据源”, matching the combined seven-service and three-artifact readiness model without forcing a longer forensic qualifier into the button. The loading label and README use the same broader data-source terminology.
 
 Focused comparison was required because the Banner composition, logo sharpness, small forensic labels, and restart copy were too small to judge reliably in the full-view comparison. The full hero crop and icon scale strip were inspected separately.
 
