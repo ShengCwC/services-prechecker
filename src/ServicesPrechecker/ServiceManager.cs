@@ -169,11 +169,16 @@ namespace UndefinedSS.ServicesPrechecker
             return results;
         }
 
-        public static bool RelaunchElevated()
+        public static bool RelaunchElevated(string targetUserSid)
         {
             ProcessStartInfo info = new ProcessStartInfo();
             info.FileName = Process.GetCurrentProcess().MainModule.FileName;
             info.Arguments = "--enable-all";
+            if (!string.IsNullOrWhiteSpace(targetUserSid))
+            {
+                SecurityIdentifier sid = new SecurityIdentifier(targetUserSid);
+                info.Arguments += " --target-user-sid=" + sid.Value;
+            }
             info.UseShellExecute = true;
             info.Verb = "runas";
             Process.Start(info);

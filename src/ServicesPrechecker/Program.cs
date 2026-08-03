@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Security.Principal;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -16,6 +17,11 @@ namespace UndefinedSS.ServicesPrechecker
                 {
                     return string.Equals(value, "--enable-all", StringComparison.OrdinalIgnoreCase);
                 });
+            string targetUserSid = ReadTargetUserSid(args);
+            if (!autoEnable)
+            {
+                targetUserSid = GetCurrentUserSid();
+            }
 
             AppDomain.CurrentDomain.UnhandledException +=
                 delegate(object sender, UnhandledExceptionEventArgs eventArgs)
@@ -34,8 +40,35 @@ namespace UndefinedSS.ServicesPrechecker
             Application application = new Application();
             application.ShutdownMode = ShutdownMode.OnMainWindowClose;
             RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
-            MainWindow window = new MainWindow(autoEnable);
+            MainWindow window = new MainWindow(autoEnable, targetUserSid);
             application.Run(window);
+        }
+
+        private static string ReadTargetUserSid(string[] args)
+        {
+            const string prefix = "--target-user-sid=";
+            string value = args.FirstOrDefault(
+                delegate(string argument)
+                {
+                    return argument != null &&
+                        argument.StartsWith(
+                            prefix,
+                            StringComparison.OrdinalIgnoreCase);
+                });
+            return value == null ? null : value.Substring(prefix.Length);
+        }
+
+        private static string GetCurrentUserSid()
+        {
+            try
+            {
+                WindowsIdentity identity = WindowsIdentity.GetCurrent();
+                return identity.User == null ? null : identity.User.Value;
+            }
+            catch
+            {
+                return null;
+            }
         }
     }
 }

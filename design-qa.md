@@ -1,4 +1,4 @@
-# Product Design QA — v1.4.2
+# Product Design QA — v1.5.0
 
 ## Evidence
 
@@ -21,6 +21,8 @@
 - v1.4.1 runtime large icon: `D:\Data\Docs\services-prechecker\qa\taskbar-icon-v1.4.1\after-big.png`
 - v1.4.2 update modal at 1140 × 760: `D:\Data\Docs\services-prechecker\qa\implementation-v1.4.2-update-1140x760.png`
 - v1.4.2 update modal at minimum 980 × 700: `D:\Data\Docs\services-prechecker\qa\implementation-v1.4.2-update-980x700.png`
+- v1.5.0 forensic-source readiness at 1140 × 840: `D:\Data\Docs\services-prechecker\qa\implementation-v1.5.0-artifacts-1140x840.png`
+- v1.5.0 forensic-source readiness at minimum 980 × 700: `D:\Data\Docs\services-prechecker\qa\implementation-v1.5.0-artifacts-980x700.png`
 
 The source visual is 1536 × 1024 pixels. The rendered WPF window is 1710 × 1140 pixels for a 1140 × 760 logical-pixel window at 150% Windows display scaling. The implementation was aspect-preservingly normalized to 1536 × 1024 before the side-by-side comparison. Both views represent the normal service-scan state in the same dark theme.
 
@@ -39,6 +41,8 @@ No actionable P0, P1, or P2 differences remain.
 - HWID states and accessibility: the text exposes a Button/Invoke pattern, keyboard focus, visible focus treatment, hand cursor, tooltip, and automation name/help text. Success, failure, and restoration use the same footprint, so feedback does not cause layout shift.
 - Update modal: current/latest versions, the first-party `dl.screenshare.cn` destination, “稍后”, and “前往下载” remain visible without wrapping or clipping at both supported sizes. A visible amber keyboard-focus ring is present, the obscured page is disabled while the modal is open, and restart warnings retain priority over update prompts.
 - Runtime taskbar icon: the window now decodes the largest frame from the multi-resolution ICO instead of flattening the first 16-pixel frame. At 150% display scaling, the 24-pixel small icon fills 22 × 22 pixels and the 48-pixel large icon fills 44 × 44 pixels; v1.4.0 filled only about 14 × 14 pixels on either canvas.
+- Forensic-source integration: ShimCache, Amcache, and UserAssist use the same card grammar as the seven service checks, bringing the summary to ten readiness conditions without introducing a separate panel. The cards remain readable in four columns at both supported widths and move inside the existing vertical scroll region when height is constrained.
+- Minimum-size footer behavior: the centered HWID and right-aligned version remain complete at 980 × 700. The lower-priority privacy sentence may ellipsize on the left at this minimum width, but it does not overlap the interactive HWID or version label; its full wording is available at the default 1140 × 840 size.
 
 Focused comparison was required because the Banner composition, logo sharpness, small forensic labels, and restart copy were too small to judge reliably in the full-view comparison. The full hero crop and icon scale strip were inspected separately.
 
@@ -69,6 +73,8 @@ Focused comparison was required because the Banner composition, logo sharpness, 
 - Update checker request contract, per-launch refresh, numeric comparison, strict JSON parsing, 4-second timeout, fixed first-party download URL, rate limits, invalid tags, offline failures, and recovery on the next launch: passed.
 - Live GitHub latest-release check: passed and returned `v1.4.1` during v1.4.2 QA. Two separate processes using `v1.4.0` as the comparison version both discovered the update despite an existing recent `LastFailureUtc` registry value; the obsolete registry values remained unchanged and no longer affected behavior. An injected newer result continues to render the update modal at both supported sizes.
 - Healthy-service restart policy: passed. A successful no-op no longer invalidates the current boot; configuration, runtime-state, and driver restart changes still establish the restart gate.
+- Forensic-source policy tests: passed. Coverage includes disabled/invalid AppCompat policies, optional missing AeLookupSvc, enabled/disabled/missing Application Experience tasks, unavailable Amcache components, original-user SID targeting across elevation, unloaded user hives, Explorer-shell absence, and restart aggregation.
+- v1.5.0 responsive UI: passed at 1140 × 840 and 980 × 700. All ten conditions are reachable, the action buttons remain visible, the content scrolls independently of the footer, and no card or footer control overlaps.
 - Actual service mutation was not invoked during design QA to avoid changing the test computer’s service policy. The elevated enable path compiles and uses the verified restart marker, notice, pending states, and modal.
 
 ## Follow-up Polish

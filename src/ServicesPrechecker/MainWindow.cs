@@ -35,6 +35,7 @@ namespace UndefinedSS.ServicesPrechecker
         private static readonly string ApplicationVersion = GetApplicationVersion();
 
         private readonly bool autoEnable;
+        private readonly string targetUserSid;
         private readonly Border windowFrame;
         private readonly UniformGrid servicesGrid;
         private readonly TextBlock summaryText;
@@ -72,14 +73,16 @@ namespace UndefinedSS.ServicesPrechecker
             Update
         }
 
-        public MainWindow(bool autoEnable)
+        public MainWindow(bool autoEnable, string targetUserSid)
         {
             this.autoEnable = autoEnable;
-            restartPending = RestartRequirement.IsPendingForCurrentBoot();
+            this.targetUserSid = targetUserSid;
+            restartPending =
+                RestartRequirement.IsPendingForCurrentBoot(targetUserSid);
 
             Title = "Undefined SS · Services Prechecker";
             Width = 1140;
-            Height = 760;
+            Height = 840;
             MinWidth = 980;
             MinHeight = 700;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -184,7 +187,7 @@ namespace UndefinedSS.ServicesPrechecker
             refreshButton = CreateButton("重新检测", false);
             refreshButton.Margin = new Thickness(0, 0, 9, 0);
             refreshButton.Click += HandleRefreshClick;
-            enableButton = CreateButton("一键启用全部系统服务", true);
+            enableButton = CreateButton("一键启用全部取证数据源", true);
             enableButton.Click += HandleEnableClick;
             actions.Children.Add(refreshButton);
             actions.Children.Add(enableButton);
@@ -211,10 +214,17 @@ namespace UndefinedSS.ServicesPrechecker
             servicesGrid = new UniformGrid
             {
                 Columns = 4,
-                Rows = 2
+                Rows = 0
             };
-            Grid.SetRow(servicesGrid, 4);
-            content.Children.Add(servicesGrid);
+            ScrollViewer servicesScroll = new ScrollViewer
+            {
+                Content = servicesGrid,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Padding = new Thickness(0, 0, 4, 0)
+            };
+            Grid.SetRow(servicesScroll, 4);
+            content.Children.Add(servicesScroll);
 
             Border footer = new Border
             {
@@ -229,7 +239,7 @@ namespace UndefinedSS.ServicesPrechecker
             footerLayout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             activityText = new TextBlock
             {
-                Text = "服务与 HWID 本机处理；仅版本检测联网且不上传设备数据。",
+                Text = "服务、取证记录源与 HWID 均在本机检查；不会上传取证数据。",
                 VerticalAlignment = VerticalAlignment.Center,
                 Foreground = new SolidColorBrush(SecondaryTextColor),
                 FontSize = 10,
@@ -936,7 +946,8 @@ namespace UndefinedSS.ServicesPrechecker
 
         private async void HandleRefreshClick(object sender, RoutedEventArgs e)
         {
-            restartPending = RestartRequirement.IsPendingForCurrentBoot();
+            restartPending =
+                RestartRequirement.IsPendingForCurrentBoot(targetUserSid);
             UpdateRestartNotice();
             await RefreshSnapshots();
         }
@@ -948,7 +959,7 @@ namespace UndefinedSS.ServicesPrechecker
                 try
                 {
                     activityText.Text = "正在请求管理员权限…";
-                    ServiceManager.RelaunchElevated();
+                    ServiceManager.RelaunchElevated(targetUserSid);
                     Close();
                 }
                 catch (Win32Exception exception)
@@ -976,14 +987,14 @@ namespace UndefinedSS.ServicesPrechecker
                 return;
             }
 
-            SetBusy(true, "正在读取 7 项系统服务…");
-            IList<ServiceSnapshot> snapshots;
+            SetBusy(true, "正在读取 7 项系统服务与 3 项取证记录源…");
+            ReadinessSnapshotBundle snapshots;
             try
             {
                 snapshots = await Task.Run(
                     delegate
                     {
-                        return ServiceManager.GetSnapshots();
+                        return ReadAllSnapshots();
                     });
             }
             catch (Exception exception)
@@ -992,10 +1003,10 @@ namespace UndefinedSS.ServicesPrechecker
                 return;
             }
 
-            RenderSnapshots(snapshots);
+            RenderSnapshots(snapshots.Services, snapshots.Artifacts);
             string completedMessage = restartPending
-                ? "服务设置已改变：请重启系统；当前启动周期的查端仍按异常处理。"
-                : "检查完成。服务与 HWID 本机处理；仅版本检测联网且不上传设备数据。";
+                ? "取证数据源设置已改变：请重启系统；当前启动周期的查端仍按异常处理。"
+                : "检查完成。所有检查均在本机完成，不会上传系统服务、记录状态或 HWID。";
             SetBusy(false, completedMessage);
         }
 
@@ -1006,15 +1017,21 @@ namespace UndefinedSS.ServicesPrechecker
                 return;
             }
 
-            SetBusy(true, "正在配置取证所需服务，请稍候…");
+            SetBusy(true, "正在配置取证所需服务、策略与系统任务，请稍候…");
 
-            IList<EnableResult> results;
+            ReadinessEnableBundle results;
             try
             {
                 results = await Task.Run(
                     delegate
                     {
-                        return ServiceManager.EnableAll();
+                        ForensicArtifactManager artifactManager =
+                            ForensicArtifactManager.CreateProduction();
+                        return new ReadinessEnableBundle
+                        {
+                            Services = ServiceManager.EnableAll(),
+                            Artifacts = artifactManager.EnableAll(targetUserSid)
+                        };
                     });
             }
             catch (Exception exception)
@@ -1024,21 +1041,25 @@ namespace UndefinedSS.ServicesPrechecker
             }
 
             bool restartRequiredByOperation =
-                ServiceManager.RequiresRestartAfterEnable(results);
+                ServiceManager.RequiresRestartAfterEnable(results.Services) ||
+                ForensicArtifactManager.RequiresRestartAfterEnable(
+                    results.Artifacts);
+            bool restartMarkerStored = true;
             if (restartRequiredByOperation)
             {
-                RestartRequirement.MarkPendingForCurrentBoot();
+                restartMarkerStored =
+                    RestartRequirement.MarkPendingForCurrentBoot(targetUserSid);
                 restartPending = true;
             }
 
-            IList<ServiceSnapshot> snapshots = null;
+            ReadinessSnapshotBundle snapshots = null;
             string snapshotError = null;
             try
             {
                 snapshots = await Task.Run(
                     delegate
                     {
-                        return ServiceManager.GetSnapshots();
+                        return ReadAllSnapshots();
                     });
             }
             catch (Exception exception)
@@ -1048,38 +1069,66 @@ namespace UndefinedSS.ServicesPrechecker
 
             if (snapshots != null)
             {
-                RenderSnapshots(snapshots);
+                RenderSnapshots(snapshots.Services, snapshots.Artifacts);
             }
             UpdateRestartNotice();
 
-            int failed = results.Count(delegate(EnableResult item) { return !item.Success; });
+            int failedServices = results.Services.Count(
+                delegate(EnableResult item) { return !item.Success; });
+            int failedArtifacts = results.Artifacts.Count(
+                delegate(ForensicArtifactEnableResult item)
+                {
+                    return !item.Success;
+                });
+            int failed = failedServices + failedArtifacts;
             string message;
             if (!restartRequiredByOperation && !restartPending && failed == 0)
             {
-                message = "全部所需服务已处于正确状态，本次操作未作更改，无需重启。";
+                message = "全部取证数据源已处于正确状态，本次操作未作更改，无需重启。";
             }
             else if (!restartRequiredByOperation && restartPending && failed == 0)
             {
-                message = "全部服务当前已运行，但本次启动周期仍无效；必须重启电脑。";
+                message = "全部取证数据源当前已就绪，但本次启动周期仍无效；必须重启电脑。";
             }
             else if (failed == 0)
             {
-                message = "全部系统服务已配置；必须重启电脑，后续查端才可生效。";
+                message = "全部可用取证数据源已配置；必须重启电脑，后续查端才可生效。";
             }
             else
             {
+                IEnumerable<string> failedServiceNames =
+                    results.Services
+                        .Where(delegate(EnableResult item) { return !item.Success; })
+                        .Select(delegate(EnableResult item)
+                        {
+                            return item.Definition.DisplayName;
+                        });
+                IEnumerable<string> failedArtifactNames =
+                    results.Artifacts
+                        .Where(delegate(ForensicArtifactEnableResult item)
+                        {
+                            return !item.Success;
+                        })
+                        .Select(delegate(ForensicArtifactEnableResult item)
+                        {
+                            return item.DisplayName;
+                        });
                 string failedNames = string.Join(
                     "、",
-                    results.Where(delegate(EnableResult item) { return !item.Success; })
-                           .Select(delegate(EnableResult item) { return item.Definition.DisplayName; }));
+                    failedServiceNames.Concat(failedArtifactNames));
                 message =
-                    "部分服务已配置，但 " + failedNames +
-                    " 未能启用。处理失败项目后仍必须重启电脑。";
+                    "部分数据源已配置，但 " + failedNames +
+                    " 未能完整启用。缺失的 Windows 组件不会被擅自创建；处理后仍须重启。";
+            }
+
+            if (restartRequiredByOperation && !restartMarkerStored)
+            {
+                message += " 未能为启动本程序的用户保存重启标记，请务必手动重启。";
             }
 
             if (!string.IsNullOrWhiteSpace(snapshotError))
             {
-                message += " 服务复检失败：" + snapshotError +
+                message += " 数据源复检失败：" + snapshotError +
                     "；重启要求仍然有效。";
             }
 
@@ -1090,11 +1139,24 @@ namespace UndefinedSS.ServicesPrechecker
             }
         }
 
-        private void RenderSnapshots(IList<ServiceSnapshot> snapshots)
+        private ReadinessSnapshotBundle ReadAllSnapshots()
+        {
+            ForensicArtifactManager artifactManager =
+                ForensicArtifactManager.CreateProduction();
+            return new ReadinessSnapshotBundle
+            {
+                Services = ServiceManager.GetSnapshots(),
+                Artifacts = artifactManager.GetSnapshots(targetUserSid)
+            };
+        }
+
+        private void RenderSnapshots(
+            IList<ServiceSnapshot> serviceSnapshots,
+            IList<ForensicArtifactSnapshot> artifactSnapshots)
         {
             if (restartPending)
             {
-                foreach (ServiceSnapshot snapshot in snapshots)
+                foreach (ServiceSnapshot snapshot in serviceSnapshots)
                 {
                     if (snapshot.VisualState == ServiceVisualState.Running)
                     {
@@ -1103,39 +1165,65 @@ namespace UndefinedSS.ServicesPrechecker
                         snapshot.Detail = "服务已运行，但仅在重启后的查端中生效";
                     }
                 }
+                foreach (ForensicArtifactSnapshot snapshot in artifactSnapshots)
+                {
+                    if (snapshot.VisualState == ServiceVisualState.Running)
+                    {
+                        snapshot.VisualState = ServiceVisualState.RebootRequired;
+                        snapshot.StatusText = "等待重启";
+                        snapshot.Detail = "记录机制已配置，但仅在重启后的查端中作为有效基线";
+                    }
+                }
             }
 
             servicesGrid.Children.Clear();
-            foreach (ServiceSnapshot snapshot in snapshots)
+            foreach (ServiceSnapshot snapshot in serviceSnapshots)
             {
                 servicesGrid.Children.Add(BuildServiceCard(snapshot));
             }
+            foreach (ForensicArtifactSnapshot snapshot in artifactSnapshots)
+            {
+                servicesGrid.Children.Add(BuildArtifactCard(snapshot));
+            }
             servicesGrid.Children.Add(BuildInformationCard());
 
-            int healthy = snapshots.Count(
+            int healthyServices = serviceSnapshots.Count(
                 delegate(ServiceSnapshot snapshot)
                 {
                     return snapshot.VisualState == ServiceVisualState.Running;
                 });
-            int attention = snapshots.Count(
+            int healthyArtifacts = artifactSnapshots.Count(
+                delegate(ForensicArtifactSnapshot snapshot)
+                {
+                    return snapshot.VisualState == ServiceVisualState.Running;
+                });
+            int attentionServices = serviceSnapshots.Count(
                 delegate(ServiceSnapshot snapshot)
                 {
                     return snapshot.VisualState != ServiceVisualState.Running;
                 });
+            int attentionArtifacts = artifactSnapshots.Count(
+                delegate(ForensicArtifactSnapshot snapshot)
+                {
+                    return snapshot.VisualState != ServiceVisualState.Running;
+                });
+            int healthy = healthyServices + healthyArtifacts;
+            int total = serviceSnapshots.Count + artifactSnapshots.Count;
+            int attention = attentionServices + attentionArtifacts;
 
             if (restartPending)
             {
                 summaryText.Text = "服务已配置，等待系统重启";
                 summaryText.Foreground = new SolidColorBrush(RestartColor);
             }
-            else if (healthy == snapshots.Count)
+            else if (healthy == total)
             {
-                summaryText.Text = "7 / 7 项服务运行正常";
+                summaryText.Text = total + " / " + total + " 项取证条件正常";
                 summaryText.Foreground = new SolidColorBrush(Color.FromRgb(119, 205, 151));
             }
             else
             {
-                summaryText.Text = healthy + " / " + snapshots.Count + " 项服务运行正常";
+                summaryText.Text = healthy + " / " + total + " 项取证条件正常";
                 summaryText.Foreground = new SolidColorBrush(PrimaryTextColor);
             }
 
@@ -1150,11 +1238,43 @@ namespace UndefinedSS.ServicesPrechecker
                 metadataText.Text =
                     "最近检测 " + DateTime.Now.ToString("HH:mm:ss") +
                     "  ·  " + privilege +
-                    (attention > 0 ? "  ·  " + attention + " 项需要处理" : "  ·  已具备服务运行条件");
+                    (attention > 0 ? "  ·  " + attention + " 项需要处理" : "  ·  已具备取证记录条件");
             }
         }
 
         private FrameworkElement BuildServiceCard(ServiceSnapshot snapshot)
+        {
+            string detail = string.IsNullOrWhiteSpace(snapshot.Detail)
+                ? "启动方式：" + snapshot.StartTypeText
+                : snapshot.Detail;
+            return BuildReadinessCard(
+                snapshot.Definition.DisplayName,
+                snapshot.Definition.ServiceName,
+                snapshot.Definition.Description,
+                detail,
+                snapshot.VisualState,
+                snapshot.StatusText);
+        }
+
+        private FrameworkElement BuildArtifactCard(
+            ForensicArtifactSnapshot snapshot)
+        {
+            return BuildReadinessCard(
+                snapshot.DisplayName,
+                snapshot.CodeName,
+                snapshot.Description,
+                snapshot.Detail,
+                snapshot.VisualState,
+                snapshot.StatusText);
+        }
+
+        private FrameworkElement BuildReadinessCard(
+            string displayName,
+            string codeName,
+            string descriptionText,
+            string detailText,
+            ServiceVisualState state,
+            string statusText)
         {
             Border card = new Border
             {
@@ -1163,7 +1283,8 @@ namespace UndefinedSS.ServicesPrechecker
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(5),
                 Margin = new Thickness(5),
-                Padding = new Thickness(14, 12, 14, 11)
+                Padding = new Thickness(14, 12, 14, 11),
+                MinHeight = 128
             };
 
             Grid cardGrid = new Grid();
@@ -1179,7 +1300,7 @@ namespace UndefinedSS.ServicesPrechecker
 
             TextBlock name = new TextBlock
             {
-                Text = snapshot.Definition.DisplayName,
+                Text = displayName,
                 Foreground = new SolidColorBrush(PrimaryTextColor),
                 FontFamily = new FontFamily("Segoe UI"),
                 FontSize = 12,
@@ -1191,7 +1312,7 @@ namespace UndefinedSS.ServicesPrechecker
 
             TextBlock serviceName = new TextBlock
             {
-                Text = snapshot.Definition.ServiceName,
+                Text = codeName,
                 Foreground = new SolidColorBrush(AccentColor),
                 FontFamily = new FontFamily("Consolas"),
                 FontSize = 9,
@@ -1204,7 +1325,7 @@ namespace UndefinedSS.ServicesPrechecker
 
             TextBlock description = new TextBlock
             {
-                Text = snapshot.Definition.Description,
+                Text = descriptionText,
                 Foreground = new SolidColorBrush(SecondaryTextColor),
                 FontSize = 10,
                 TextWrapping = TextWrapping.Wrap,
@@ -1215,9 +1336,7 @@ namespace UndefinedSS.ServicesPrechecker
 
             TextBlock detail = new TextBlock
             {
-                Text = string.IsNullOrWhiteSpace(snapshot.Detail)
-                    ? "启动方式：" + snapshot.StartTypeText
-                    : snapshot.Detail,
+                Text = detailText,
                 Foreground = new SolidColorBrush(Color.FromRgb(123, 120, 114)),
                 FontSize = 9,
                 TextWrapping = TextWrapping.Wrap,
@@ -1226,7 +1345,7 @@ namespace UndefinedSS.ServicesPrechecker
             Grid.SetRow(detail, 3);
             cardGrid.Children.Add(detail);
 
-            Border statePill = BuildStatePill(snapshot);
+            Border statePill = BuildStatePill(state, statusText);
             Grid.SetRow(statePill, 4);
             cardGrid.Children.Add(statePill);
 
@@ -1236,7 +1355,14 @@ namespace UndefinedSS.ServicesPrechecker
 
         private Border BuildStatePill(ServiceSnapshot snapshot)
         {
-            Color stateColor = GetStateColor(snapshot.VisualState);
+            return BuildStatePill(snapshot.VisualState, snapshot.StatusText);
+        }
+
+        private Border BuildStatePill(
+            ServiceVisualState state,
+            string statusText)
+        {
+            Color stateColor = GetStateColor(state);
             Border pill = new Border
             {
                 Background = new SolidColorBrush(Color.FromArgb(25, stateColor.R, stateColor.G, stateColor.B)),
@@ -1258,7 +1384,7 @@ namespace UndefinedSS.ServicesPrechecker
             };
             TextBlock label = new TextBlock
             {
-                Text = snapshot.StatusText,
+                Text = statusText,
                 Foreground = new SolidColorBrush(stateColor),
                 FontSize = 9,
                 FontWeight = FontWeights.SemiBold
@@ -1473,7 +1599,7 @@ namespace UndefinedSS.ServicesPrechecker
             {
                 restartNotice.Background = new SolidColorBrush(Color.FromRgb(33, 20, 15));
                 restartNotice.BorderBrush = new SolidColorBrush(Color.FromRgb(116, 62, 41));
-                restartNoticeTitle.Text = "已配置服务，必须重启系统";
+                restartNoticeTitle.Text = "已配置取证数据源，必须重启系统";
                 restartNoticeBody.Text =
                     "当前启动周期内的查端仍按异常处理。请重启 Windows；只有重启后的后续查端才有效。";
             }
@@ -1481,7 +1607,7 @@ namespace UndefinedSS.ServicesPrechecker
             {
                 restartNotice.Background = new SolidColorBrush(Color.FromRgb(22, 18, 14));
                 restartNotice.BorderBrush = new SolidColorBrush(Color.FromRgb(79, 59, 39));
-                restartNoticeTitle.Text = "启用任何所需服务后，都必须重启系统";
+                restartNoticeTitle.Text = "启用任何所需数据源后，都必须重启系统";
                 restartNoticeBody.Text =
                     "如果现在才启用服务，本次查端仍按异常处理；只有重启后的后续查端才有效。";
             }
@@ -1521,15 +1647,15 @@ namespace UndefinedSS.ServicesPrechecker
             }
             else if (failedCount == 0)
             {
-                modalTitle.Text = "服务已配置，需要重启电脑";
+                modalTitle.Text = "取证数据源已配置，需要重启电脑";
                 modalBody.Text =
-                    "全部所需系统服务已完成配置。但这些服务不会让当前启动周期的查端变为有效，本次查端结果仍会按照“异常”处理。";
+                    "全部可用取证数据源已完成配置。但这些设置不会让当前启动周期的查端变为有效，本次查端结果仍会按照“异常”处理。";
             }
             else
             {
-                modalTitle.Text = "部分服务已配置";
+                modalTitle.Text = "部分取证数据源已配置";
                 modalBody.Text =
-                    "已完成可用的服务设置，但仍有服务未能启用。解决失败项目后也必须重启系统；当前启动周期的查端仍会按照“异常”处理。";
+                    "已完成可用的数据源设置，但仍有项目无法完整启用。解决失败项目后也必须重启系统；当前启动周期的查端仍会按照“异常”处理。";
             }
 
             modalConfirmButton.Focus();
@@ -1682,7 +1808,7 @@ namespace UndefinedSS.ServicesPrechecker
             isBusy = busy;
             refreshButton.IsEnabled = !busy;
             enableButton.IsEnabled = !busy;
-            enableButton.Content = busy ? "正在处理…" : "一键启用全部系统服务";
+            enableButton.Content = busy ? "正在处理…" : "一键启用全部取证数据源";
             activityText.Text = activity;
             Cursor = busy ? Cursors.Wait : Cursors.Arrow;
         }
