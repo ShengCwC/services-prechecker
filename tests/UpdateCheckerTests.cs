@@ -10,6 +10,7 @@ internal static class UpdateCheckerTests
     private static void Main()
     {
         TestRequestContractAndNumericalComparison();
+        TestGitHubFallback();
         TestEquivalentAndOlderVersions();
         TestEveryCheckUsesNetwork();
         TestFailureDoesNotSuppressNextCheck();
@@ -29,7 +30,7 @@ internal static class UpdateCheckerTests
     {
         FakeHttpClient httpClient = Responding(
             200,
-            "{\"tag_name\":\"v1.10.0\",\"html_url\":\"https://attacker.invalid/file.exe\"}");
+            "{\"version\":\"1.10.0\",\"downloadUrl\":\"https://attacker.invalid/file.exe\"}");
         UpdateChecker checker = CreateChecker(httpClient);
 
         UpdateCheckResult result = checker.CheckAsync("1.9.0")
@@ -44,17 +45,17 @@ internal static class UpdateCheckerTests
             "download link is the fixed first-party URL");
         AssertEqual(1, httpClient.CallCount, "one request is issued");
         AssertEqual(
-            "https://api.github.com/repos/ShengCwC/services-prechecker/releases/latest",
+            "https://undefined-ss-downloads.smfsheng.workers.dev/release.json",
             httpClient.LastUri.AbsoluteUri,
-            "only the GitHub latest-release endpoint is queried");
+            "the first-party release manifest is queried first");
         AssertEqual(
-            "application/vnd.github+json",
+            "application/json",
             httpClient.LastHeaders.Accept,
-            "GitHub JSON Accept header");
+            "first-party JSON Accept header");
         AssertEqual(
-            "2022-11-28",
+            null,
             httpClient.LastHeaders.GitHubApiVersion,
-            "GitHub API version header");
+            "first-party request has no GitHub-only header");
         AssertEqual(
             "UndefinedSS-ServicesPrechecker/1.9.0",
             httpClient.LastHeaders.UserAgent,
@@ -62,22 +63,53 @@ internal static class UpdateCheckerTests
         AssertEqual(TimeSpan.FromSeconds(4), httpClient.LastTimeout, "four-second timeout");
     }
 
+    private static void TestGitHubFallback()
+    {
+        FakeHttpClient httpClient = new FakeHttpClient
+        {
+            FirstPartyResponse = new UpdateHttpResponse(503, "unavailable"),
+            GitHubResponse = new UpdateHttpResponse(
+                200,
+                "{\"tag_name\":\"v1.5.2\",\"html_url\":\"https://attacker.invalid/file.exe\"}")
+        };
+
+        UpdateCheckResult result = CreateChecker(httpClient)
+            .CheckAsync("1.5.0").GetAwaiter().GetResult();
+
+        AssertTrue(result.IsCheckAvailable, "GitHub fallback result is available");
+        AssertTrue(result.IsUpdateAvailable, "1.5.0 discovers the 1.5.2 update");
+        AssertEqual("v1.5.2", result.LatestVersion, "fallback version is normalized for UI");
+        AssertEqual(2, httpClient.CallCount, "fallback is requested after first-party failure");
+        AssertEqual(
+            "https://api.github.com/repos/ShengCwC/services-prechecker/releases/latest",
+            httpClient.LastUri.AbsoluteUri,
+            "GitHub is the secondary source");
+        AssertEqual(
+            "application/vnd.github+json",
+            httpClient.LastHeaders.Accept,
+            "GitHub fallback uses the GitHub Accept header");
+        AssertEqual(
+            "2022-11-28",
+            httpClient.LastHeaders.GitHubApiVersion,
+            "GitHub fallback sends the API version header");
+    }
+
     private static void TestEquivalentAndOlderVersions()
     {
         UpdateCheckResult equivalent = CreateChecker(
-            Responding(200, "{\"tag_name\": \"v1.3.0\"}"))
+            Responding(200, "{\"version\": \"1.3.0\"}"))
             .CheckAsync("1.3.0.0").GetAwaiter().GetResult();
         AssertTrue(equivalent.IsCheckAvailable, "three-part remote equals four-part local");
         AssertFalse(equivalent.IsUpdateAvailable, "1.3.0 is not newer than 1.3.0.0");
 
         UpdateCheckResult older = CreateChecker(
-            Responding(200, "{\"tag_name\":\"v1.2.9\"}"))
+            Responding(200, "{\"version\":\"1.2.9\"}"))
             .CheckAsync("v1.3.0").GetAwaiter().GetResult();
         AssertFalse(older.IsUpdateAvailable, "older release does not prompt");
 
         FakeHttpClient invalidCurrentClient = Responding(
             200,
-            "{\"tag_name\":\"v2.0.0\"}");
+            "{\"version\":\"2.0.0\"}");
         UpdateCheckResult invalidCurrent = CreateChecker(
             invalidCurrentClient).CheckAsync("version one").GetAwaiter().GetResult();
         AssertFalse(invalidCurrent.IsCheckAvailable, "invalid local version is silent");
@@ -88,7 +120,7 @@ internal static class UpdateCheckerTests
     {
         FakeHttpClient httpClient = Responding(
             200,
-            "{\"tag_name\":\"v1.4.1\"}");
+            "{\"version\":\"1.4.1\"}");
         UpdateChecker checker = CreateChecker(httpClient);
 
         UpdateCheckResult first = checker.CheckAsync("1.4.0")
@@ -97,7 +129,7 @@ internal static class UpdateCheckerTests
 
         httpClient.Response = new UpdateHttpResponse(
             200,
-            "{\"tag_name\":\"v1.4.2\"}");
+            "{\"version\":\"1.4.2\"}");
         UpdateCheckResult second = checker.CheckAsync("1.4.0")
             .GetAwaiter().GetResult();
         AssertTrue(second.IsUpdateAvailable, "later launch checks again");
@@ -118,36 +150,36 @@ internal static class UpdateCheckerTests
         httpClient.Exception = null;
         httpClient.Response = new UpdateHttpResponse(
             200,
-            "{\"tag_name\":\"v1.4.1\"}");
+            "{\"version\":\"1.4.1\"}");
         UpdateCheckResult recovered = checker.CheckAsync("1.4.0")
             .GetAwaiter().GetResult();
         AssertTrue(recovered.IsUpdateAvailable, "next launch retries after a failure");
-        AssertEqual(2, httpClient.CallCount, "failure creates no cross-launch backoff");
+        AssertEqual(3, httpClient.CallCount, "failure creates no cross-launch backoff");
     }
 
     private static void TestSilentFailures()
     {
         AssertSilentFailure(
             Responding(403, null),
-            "GitHub rate limit is silent");
+            "source rejection is silent");
         AssertSilentFailure(
             Responding(500, "server error"),
             "server error is silent");
         AssertSilentFailure(
             Responding(200, "{}"),
-            "missing tag is silent");
+            "missing version is silent");
         AssertSilentFailure(
-            Responding(200, "not-json {\"tag_name\":\"v9.0.0\"}"),
-            "malformed JSON containing a tag-like fragment is rejected");
+            Responding(200, "not-json {\"version\":\"9.0.0\"}"),
+            "malformed JSON containing a version-like fragment is rejected");
         AssertSilentFailure(
-            Responding(200, "{\"tag_name\":\"v1.4.0-beta\"}"),
-            "prerelease-shaped tag is rejected");
+            Responding(200, "{\"version\":\"1.4.0-beta\"}"),
+            "prerelease-shaped version is rejected");
         AssertSilentFailure(
-            Responding(200, "{\"tag_name\":\"v01.4.0\"}"),
-            "non-canonical numeric tag is rejected");
+            Responding(200, "{\"version\":\"01.4.0\"}"),
+            "non-canonical numeric version is rejected");
         AssertSilentFailure(
-            Responding(200, "{\"tag_name\":\"1.4.0\"}"),
-            "tag without v prefix is rejected");
+            Responding(200, "{\"version\":\"v1.4.0\"}"),
+            "manifest version with v prefix is rejected");
 
         FakeHttpClient exceptionClient = new FakeHttpClient();
         exceptionClient.Exception = new InvalidOperationException("Injected network failure.");
@@ -202,6 +234,8 @@ internal static class UpdateCheckerTests
     private sealed class FakeHttpClient : IUpdateHttpClient
     {
         public UpdateHttpResponse Response { get; set; }
+        public UpdateHttpResponse FirstPartyResponse { get; set; }
+        public UpdateHttpResponse GitHubResponse { get; set; }
         public Exception Exception { get; set; }
         public bool ReturnNullTask { get; set; }
         public TaskCompletionSource<UpdateHttpResponse> PendingResponse { get; set; }
@@ -236,6 +270,18 @@ internal static class UpdateCheckerTests
             if (PendingResponse != null)
             {
                 return PendingResponse.Task;
+            }
+
+            if (uri.Host.Equals("api.github.com", StringComparison.OrdinalIgnoreCase) &&
+                GitHubResponse != null)
+            {
+                return Task.FromResult(GitHubResponse);
+            }
+
+            if (!uri.Host.Equals("api.github.com", StringComparison.OrdinalIgnoreCase) &&
+                FirstPartyResponse != null)
+            {
+                return Task.FromResult(FirstPartyResponse);
             }
 
             return Task.FromResult(Response);
