@@ -1,4 +1,4 @@
-# Product Design QA — v1.5.0
+# Product Design QA — v1.5.1
 
 ## Evidence
 
@@ -23,6 +23,10 @@
 - v1.4.2 update modal at minimum 980 × 700: `D:\Data\Docs\services-prechecker\qa\implementation-v1.4.2-update-980x700.png`
 - v1.5.0 forensic-source readiness at 1140 × 840: `D:\Data\Docs\services-prechecker\qa\implementation-v1.5.0-artifacts-1140x840.png`
 - v1.5.0 forensic-source readiness at minimum 980 × 700: `D:\Data\Docs\services-prechecker\qa\implementation-v1.5.0-artifacts-980x700.png`
+- v1.5.0 default-scrollbar audit capture: `D:\Data\Docs\services-prechecker\qa\audit-v1.5.0-scrollbar.png`
+- v1.5.1 themed scrollbar at 1140 × 840: `D:\Data\Docs\services-prechecker\qa\implementation-v1.5.1-scrollbar-1140x840.png`
+- v1.5.1 themed scrollbar at minimum 980 × 700: `D:\Data\Docs\services-prechecker\qa\implementation-v1.5.1-scrollbar-980x700.png`
+- Same-state scrollbar comparison: `D:\Data\Docs\services-prechecker\qa\comparison-v1.5.1-scrollbar-before-after.png`
 
 The source visual is 1536 × 1024 pixels. The rendered WPF window is 1710 × 1140 pixels for a 1140 × 760 logical-pixel window at 150% Windows display scaling. The implementation was aspect-preservingly normalized to 1536 × 1024 before the side-by-side comparison. Both views represent the normal service-scan state in the same dark theme.
 
@@ -43,6 +47,7 @@ No actionable P0, P1, or P2 differences remain.
 - Runtime taskbar icon: the window now decodes the largest frame from the multi-resolution ICO instead of flattening the first 16-pixel frame. At 150% display scaling, the 24-pixel small icon fills 22 × 22 pixels and the 48-pixel large icon fills 44 × 44 pixels; v1.4.0 filled only about 14 × 14 pixels on either canvas.
 - Forensic-source integration: ShimCache, Amcache, and UserAssist use the same card grammar as the seven service checks, bringing the summary to ten readiness conditions without introducing a separate panel. The cards remain readable in four columns at both supported widths and move inside the existing vertical scroll region when height is constrained.
 - Minimum-size footer behavior: the centered HWID and right-aligned version remain complete at 980 × 700. The lower-priority privacy sentence may ellipsize on the left at this minimum width, but it does not overlap the interactive HWID or version label; its full wording is available at the default 1140 × 840 size.
+- Scrollbar integration: the light Windows-default gutter and arrow buttons have been replaced with a 12-pixel dark forensic rail and centered five-pixel warm-gray thumb. The control now recedes behind card states at rest, becomes clearer on hover, and uses the existing amber warning color while dragging or keyboard-focused. The rail retains native WPF Track paging commands and a 38-pixel minimum thumb rather than becoming a decorative or undersized affordance.
 
 Focused comparison was required because the Banner composition, logo sharpness, small forensic labels, and restart copy were too small to judge reliably in the full-view comparison. The full hero crop and icon scale strip were inspected separately.
 
@@ -54,6 +59,7 @@ Focused comparison was required because the Banner composition, logo sharpness, 
 4. User-reported regression — P1: Windows Explorer continued showing the previous icon because the replacement EXE kept both the old `1.1.0.0` file version and the same cache key filename. Fix: update file/product metadata to `1.2.1`, build a uniquely named `ServicesPrechecker-v1.2.1.exe`, use a high-contrast shell-specific icon tile, and verify the result through `SHGetFileInfo`, the same Windows Shell icon path used by Explorer. Post-fix evidence is `shell-icon-v1.2.1-final.png`.
 5. User-reported regression — P1: the running application appeared with an abnormally small taskbar icon at high DPI. The generic `BitmapImage` path decoded only the ICO's first 16 × 16 frame, then centered it without scaling inside Windows' 24 × 24 and 48 × 48 runtime icon canvases. Fix: decode the full ICO, select and freeze its 256 × 256 frame, and let WPF generate the DPI-sized window icons. `WM_GETICON` pixel-bound checks confirm the corrected fill ratio.
 6. User-reported regression — P1: v1.4.0 could suppress a newly available update for 24 hours after either an earlier failed request or a successful request that cached the then-current version. Fix: remove the cross-process registry cache and failure backoff. Each normal application launch now makes one fresh asynchronous attempt, while the elevated service helper remains offline and failures stay silent.
+7. User-reported visual mismatch — P1: the system-default light scrollbar created the brightest vertical element in the card area, introduced legacy arrow buttons, and conflicted with the custom dark chrome. Fix: use a compact native-Track template with a dark rounded rail, warm-gray thumb, hover/drag/focus states, and no arrow glyphs. The same-state comparison confirms that the content edge is now visually continuous with the dashboard.
 
 ## Primary Interactions Tested
 
@@ -75,6 +81,7 @@ Focused comparison was required because the Banner composition, logo sharpness, 
 - Healthy-service restart policy: passed. A successful no-op no longer invalidates the current boot; configuration, runtime-state, and driver restart changes still establish the restart gate.
 - Forensic-source policy tests: passed. Coverage includes disabled/invalid AppCompat policies, optional missing AeLookupSvc, enabled/disabled/missing Application Experience tasks, unavailable Amcache components, original-user SID targeting across elevation, unloaded user hives, Explorer-shell absence, and restart aggregation.
 - v1.5.0 responsive UI: passed at 1140 × 840 and 980 × 700. All ten conditions are reachable, the action buttons remain visible, the content scrolls independently of the footer, and no card or footer control overlaps.
+- v1.5.1 scrollbar template: passed. Runtime parsing, 12-pixel lane, dark rail, five-pixel resting thumb, 38-pixel minimum thumb, native Page Up/Page Down track commands, and removal of legacy arrow content are covered by an automated WPF test. ScrollViewer mouse-wheel, touch panning, keyboard focus, and accessible name/help text remain enabled.
 - Actual service mutation was not invoked during design QA to avoid changing the test computer’s service policy. The elevated enable path compiles and uses the verified restart marker, notice, pending states, and modal.
 
 ## Follow-up Polish

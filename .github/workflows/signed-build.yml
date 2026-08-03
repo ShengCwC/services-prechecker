@@ -50,6 +50,10 @@ jobs:
         shell: pwsh
         run: ./tests/run-window-icon-tests.ps1
 
+      - name: Test forensic scroll bar style
+        shell: pwsh
+        run: ./tests/run-scrollbar-tests.ps1
+
       - name: Build standalone EXE
         shell: pwsh
         run: ./build.ps1
