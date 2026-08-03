@@ -1230,12 +1230,12 @@ namespace UndefinedSS.ServicesPrechecker
             }
             else if (healthy == total)
             {
-                summaryText.Text = total + " / " + total + " 项取证条件正常";
+                summaryText.Text = total + " / " + total + " 项条件正常";
                 summaryText.Foreground = new SolidColorBrush(Color.FromRgb(119, 205, 151));
             }
             else
             {
-                summaryText.Text = healthy + " / " + total + " 项取证条件正常";
+                summaryText.Text = healthy + " / " + total + " 项条件正常";
                 summaryText.Foreground = new SolidColorBrush(PrimaryTextColor);
             }
 
