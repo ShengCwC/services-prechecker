@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Management;
 using System.Runtime.InteropServices;
+using System.Security.Principal;
 
 namespace UndefinedSS.ServicesPrechecker
 {
@@ -21,96 +22,164 @@ namespace UndefinedSS.ServicesPrechecker
 
         public static void MarkPendingForCurrentBoot()
         {
-            using (RegistryKey key = Registry.CurrentUser.CreateSubKey(RegistryPath))
+            MarkPendingForCurrentBoot(null);
+        }
+
+        public static bool MarkPendingForCurrentBoot(string targetUserSid)
+        {
+            try
             {
-                if (key != null)
+                if (string.IsNullOrWhiteSpace(targetUserSid))
                 {
-                    string identity = SerializeBootIdentities(
-                        GetCurrentBootIdentities());
-                    key.SetValue(BootIdentityValue, identity, RegistryValueKind.String);
+                    using (RegistryKey key =
+                        Registry.CurrentUser.CreateSubKey(RegistryPath))
+                    {
+                        return WritePendingIdentity(key);
+                    }
+                }
+
+                SecurityIdentifier sid = new SecurityIdentifier(targetUserSid);
+                using (RegistryKey users = RegistryKey.OpenBaseKey(
+                    RegistryHive.Users,
+                    RegistryView.Default))
+                using (RegistryKey key = users.CreateSubKey(
+                    sid.Value + @"\" + RegistryPath,
+                    RegistryKeyPermissionCheck.ReadWriteSubTree))
+                {
+                    return WritePendingIdentity(key);
                 }
             }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool WritePendingIdentity(RegistryKey key)
+        {
+            if (key == null)
+            {
+                return false;
+            }
+
+            string identity = SerializeBootIdentities(
+                GetCurrentBootIdentities());
+            key.SetValue(BootIdentityValue, identity, RegistryValueKind.String);
+            key.Flush();
+            return true;
         }
 
         public static bool IsPendingForCurrentBoot()
         {
-            IList<string> currentIdentities = GetCurrentBootIdentities();
-            using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RegistryPath, true))
+            return IsPendingForCurrentBoot(null);
+        }
+
+        public static bool IsPendingForCurrentBoot(string targetUserSid)
+        {
+            try
             {
-                if (key == null)
+                if (string.IsNullOrWhiteSpace(targetUserSid))
                 {
-                    return false;
+                    using (RegistryKey key =
+                        Registry.CurrentUser.OpenSubKey(RegistryPath, true))
+                    {
+                        return ReadPendingIdentity(key);
+                    }
                 }
 
-                string storedIdentity = key.GetValue(BootIdentityValue) as string;
-                if (string.IsNullOrWhiteSpace(storedIdentity))
+                SecurityIdentifier sid = new SecurityIdentifier(targetUserSid);
+                using (RegistryKey users = RegistryKey.OpenBaseKey(
+                    RegistryHive.Users,
+                    RegistryView.Default))
+                using (RegistryKey key = users.OpenSubKey(
+                    sid.Value + @"\" + RegistryPath,
+                    RegistryKeyPermissionCheck.ReadWriteSubTree))
                 {
-                    return false;
+                    return ReadPendingIdentity(key);
                 }
-
-                if (string.Equals(storedIdentity, UnknownBootIdentity, StringComparison.Ordinal))
-                {
-                    key.SetValue(
-                        BootIdentityValue,
-                        SerializeBootIdentities(currentIdentities),
-                        RegistryValueKind.String);
-                    return true;
-                }
-
-                IList<string> storedIdentities = ParseBootIdentities(
-                    storedIdentity);
-                if (HaveMatchingIdentity(storedIdentities, currentIdentities))
-                {
-                    key.SetValue(
-                        BootIdentityValue,
-                        SerializeBootIdentities(currentIdentities),
-                        RegistryValueKind.String);
-                    return true;
-                }
-
-                // Migrate the minute-based identity written by versions before 1.4.0.
-                if (string.Equals(
-                    storedIdentity,
-                    GetLegacyBootIdentity(),
-                    StringComparison.Ordinal))
-                {
-                    key.SetValue(
-                        BootIdentityValue,
-                        SerializeBootIdentities(currentIdentities),
-                        RegistryValueKind.String);
-                    return true;
-                }
-
-                if (ContainsOnlyFallbackIdentity(storedIdentities) &&
-                    ContainsStrongIdentity(currentIdentities))
-                {
-                    // A stronger source became readable during the same boot. Retain the
-                    // gate conservatively rather than treating source recovery as a reboot.
-                    key.SetValue(
-                        BootIdentityValue,
-                        SerializeBootIdentities(currentIdentities),
-                        RegistryValueKind.String);
-                    return true;
-                }
-
-                if (ContainsStrongIdentity(storedIdentities) &&
-                    ContainsStrongIdentity(currentIdentities) &&
-                    !HaveMatchingStrongIdentityKind(
-                        storedIdentities,
-                        currentIdentities))
-                {
-                    // The preferred identity provider changed availability. A provider
-                    // transition is not proof of reboot, so retain and migrate safely.
-                    key.SetValue(
-                        BootIdentityValue,
-                        SerializeBootIdentities(currentIdentities),
-                        RegistryValueKind.String);
-                    return true;
-                }
-
-                key.DeleteValue(BootIdentityValue, false);
+            }
+            catch
+            {
                 return false;
             }
+        }
+
+        private static bool ReadPendingIdentity(RegistryKey key)
+        {
+            if (key == null)
+            {
+                return false;
+            }
+
+            IList<string> currentIdentities = GetCurrentBootIdentities();
+            string storedIdentity = key.GetValue(BootIdentityValue) as string;
+            if (string.IsNullOrWhiteSpace(storedIdentity))
+            {
+                return false;
+            }
+
+            if (string.Equals(storedIdentity, UnknownBootIdentity, StringComparison.Ordinal))
+            {
+                key.SetValue(
+                    BootIdentityValue,
+                    SerializeBootIdentities(currentIdentities),
+                    RegistryValueKind.String);
+                return true;
+            }
+
+            IList<string> storedIdentities = ParseBootIdentities(
+                storedIdentity);
+            if (HaveMatchingIdentity(storedIdentities, currentIdentities))
+            {
+                key.SetValue(
+                    BootIdentityValue,
+                    SerializeBootIdentities(currentIdentities),
+                    RegistryValueKind.String);
+                return true;
+            }
+
+            // Migrate the minute-based identity written by versions before 1.4.0.
+            if (string.Equals(
+                storedIdentity,
+                GetLegacyBootIdentity(),
+                StringComparison.Ordinal))
+            {
+                key.SetValue(
+                    BootIdentityValue,
+                    SerializeBootIdentities(currentIdentities),
+                    RegistryValueKind.String);
+                return true;
+            }
+
+            if (ContainsOnlyFallbackIdentity(storedIdentities) &&
+                ContainsStrongIdentity(currentIdentities))
+            {
+                // A stronger source became readable during the same boot. Retain the
+                // gate conservatively rather than treating source recovery as a reboot.
+                key.SetValue(
+                    BootIdentityValue,
+                    SerializeBootIdentities(currentIdentities),
+                    RegistryValueKind.String);
+                return true;
+            }
+
+            if (ContainsStrongIdentity(storedIdentities) &&
+                ContainsStrongIdentity(currentIdentities) &&
+                !HaveMatchingStrongIdentityKind(
+                    storedIdentities,
+                    currentIdentities))
+            {
+                // The preferred identity provider changed availability. A provider
+                // transition is not proof of reboot, so retain and migrate safely.
+                key.SetValue(
+                    BootIdentityValue,
+                    SerializeBootIdentities(currentIdentities),
+                    RegistryValueKind.String);
+                return true;
+            }
+
+            key.DeleteValue(BootIdentityValue, false);
+            return false;
         }
 
         private static IList<string> ParseBootIdentities(string value)
