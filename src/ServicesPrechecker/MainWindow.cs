@@ -13,6 +13,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
@@ -221,8 +222,19 @@ namespace UndefinedSS.ServicesPrechecker
                 Content = servicesGrid,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                Padding = new Thickness(0, 0, 4, 0)
+                Padding = new Thickness(0, 0, 6, 0),
+                PanningMode = PanningMode.VerticalOnly,
+                Focusable = true
             };
+            servicesScroll.Resources.Add(
+                typeof(ScrollBar),
+                BuildForensicScrollBarStyle());
+            AutomationProperties.SetName(
+                servicesScroll,
+                "取证条件列表");
+            AutomationProperties.SetHelpText(
+                servicesScroll,
+                "可使用鼠标滚轮、拖动滑块、方向键或 Page Up 和 Page Down 浏览全部取证条件");
             Grid.SetRow(servicesScroll, 4);
             content.Children.Add(servicesScroll);
 
@@ -1543,6 +1555,114 @@ namespace UndefinedSS.ServicesPrechecker
                     "focusBorder"));
             template.Triggers.Add(focusTrigger);
             return template;
+        }
+
+        private static Style BuildForensicScrollBarStyle()
+        {
+            const string xaml =
+                @"<Style xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
+                         xmlns:x=""http://schemas.microsoft.com/winfx/2006/xaml""
+                         TargetType=""{x:Type ScrollBar}"">
+                    <Setter Property=""Width"" Value=""12"" />
+                    <Setter Property=""MinWidth"" Value=""12"" />
+                    <Setter Property=""Background"" Value=""Transparent"" />
+                    <Setter Property=""FocusVisualStyle"" Value=""{x:Null}"" />
+                    <Setter Property=""Opacity"" Value=""0.76"" />
+                    <Setter Property=""Template"">
+                        <Setter.Value>
+                            <ControlTemplate TargetType=""{x:Type ScrollBar}"">
+                                <Border x:Name=""Rail""
+                                        Margin=""1,0""
+                                        Background=""#0B0C0C""
+                                        BorderBrush=""#2B2824""
+                                        BorderThickness=""1""
+                                        CornerRadius=""6""
+                                        SnapsToDevicePixels=""True"">
+                                    <Track x:Name=""PART_Track""
+                                           Margin=""2""
+                                           Orientation=""Vertical""
+                                           IsDirectionReversed=""True""
+                                           Minimum=""{TemplateBinding Minimum}""
+                                           Maximum=""{TemplateBinding Maximum}""
+                                           Value=""{TemplateBinding Value}""
+                                           ViewportSize=""{TemplateBinding ViewportSize}"">
+                                        <Track.DecreaseRepeatButton>
+                                            <RepeatButton Command=""{x:Static ScrollBar.PageUpCommand}""
+                                                          Focusable=""False""
+                                                          IsTabStop=""False""
+                                                          Background=""Transparent"">
+                                                <RepeatButton.Template>
+                                                    <ControlTemplate TargetType=""{x:Type RepeatButton}"">
+                                                        <Border Background=""Transparent"" />
+                                                    </ControlTemplate>
+                                                </RepeatButton.Template>
+                                            </RepeatButton>
+                                        </Track.DecreaseRepeatButton>
+                                        <Track.Thumb>
+                                            <Thumb MinHeight=""38"" MinWidth=""8"" Cursor=""SizeNS"">
+                                                <Thumb.Template>
+                                                    <ControlTemplate TargetType=""{x:Type Thumb}"">
+                                                        <Border x:Name=""ThumbSurface""
+                                                                Width=""5""
+                                                                HorizontalAlignment=""Center""
+                                                                Background=""#6F6557""
+                                                                BorderBrush=""#897D6B""
+                                                                BorderThickness=""1""
+                                                                CornerRadius=""3""
+                                                                SnapsToDevicePixels=""True"" />
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property=""IsMouseOver"" Value=""True"">
+                                                                <Setter TargetName=""ThumbSurface"" Property=""Width"" Value=""7"" />
+                                                                <Setter TargetName=""ThumbSurface"" Property=""Background"" Value=""#A39681"" />
+                                                            </Trigger>
+                                                            <Trigger Property=""IsDragging"" Value=""True"">
+                                                                <Setter TargetName=""ThumbSurface"" Property=""Width"" Value=""7"" />
+                                                                <Setter TargetName=""ThumbSurface"" Property=""Background"" Value=""#E79E4C"" />
+                                                                <Setter TargetName=""ThumbSurface"" Property=""BorderBrush"" Value=""#F4C477"" />
+                                                            </Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </Thumb.Template>
+                                            </Thumb>
+                                        </Track.Thumb>
+                                        <Track.IncreaseRepeatButton>
+                                            <RepeatButton Command=""{x:Static ScrollBar.PageDownCommand}""
+                                                          Focusable=""False""
+                                                          IsTabStop=""False""
+                                                          Background=""Transparent"">
+                                                <RepeatButton.Template>
+                                                    <ControlTemplate TargetType=""{x:Type RepeatButton}"">
+                                                        <Border Background=""Transparent"" />
+                                                    </ControlTemplate>
+                                                </RepeatButton.Template>
+                                            </RepeatButton>
+                                        </Track.IncreaseRepeatButton>
+                                    </Track>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property=""IsMouseOver"" Value=""True"">
+                                        <Setter TargetName=""Rail"" Property=""BorderBrush"" Value=""#524B41"" />
+                                    </Trigger>
+                                    <Trigger Property=""IsKeyboardFocusWithin"" Value=""True"">
+                                        <Setter TargetName=""Rail"" Property=""BorderBrush"" Value=""#E79E4C"" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                    <Style.Triggers>
+                        <Trigger Property=""IsMouseOver"" Value=""True"">
+                            <Setter Property=""Opacity"" Value=""1"" />
+                        </Trigger>
+                        <Trigger Property=""IsKeyboardFocusWithin"" Value=""True"">
+                            <Setter Property=""Opacity"" Value=""1"" />
+                        </Trigger>
+                        <Trigger Property=""IsEnabled"" Value=""False"">
+                            <Setter Property=""Opacity"" Value=""0.3"" />
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>";
+            return (Style)XamlReader.Parse(xaml);
         }
 
         private static ControlTemplate BuildFooterTextButtonTemplate()
