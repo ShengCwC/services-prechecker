@@ -129,4 +129,4 @@ Minecraft 查端通常判断的是本次电脑启动到查端人员远程连接�
 
 ## License
 
-[MIT](LICENSE)
+[GNU Affero General Public License v3.0](LICENSE)
