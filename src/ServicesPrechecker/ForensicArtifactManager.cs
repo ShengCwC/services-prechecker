@@ -30,6 +30,10 @@ namespace UndefinedSS.ServicesPrechecker
     {
         internal const string AppCompatPolicyPath =
             @"SOFTWARE\Policies\Microsoft\Windows\AppCompat";
+        internal const string AppCompatCachePath =
+            @"SYSTEM\CurrentControlSet\Control\Session Manager\AppCompatCache";
+        internal const string AppCompatCacheValueName = "AppCompatCache";
+        private const int MaximumModernShimCacheHeaderLength = 64;
         internal const string UserTrackingPolicyPath =
             @"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer";
         internal const string UserTrackingSettingsPath =
@@ -191,13 +195,44 @@ namespace UndefinedSS.ServicesPrechecker
                         : "AeLookupSvc 已被禁用，应设为手动触发");
             }
 
+            int cacheSize;
+            ShimCacheDataState cacheState = InspectShimCacheData(
+                dataSource.ReadMachineValue(
+                    AppCompatCachePath,
+                    AppCompatCacheValueName),
+                out cacheSize);
+            if (cacheState == ShimCacheDataState.Invalid)
+            {
+                return CreateSnapshot(
+                    ForensicArtifactKind.ShimCache,
+                    ServiceVisualState.Error,
+                    "落盘缓存格式异常",
+                    "AppCompatCache 不是有效的二进制值，无法确认采集器可读取");
+            }
+
+            if (cacheState != ShimCacheDataState.HasPayload)
+            {
+                string cacheDetail = cacheState == ShimCacheDataState.Missing
+                    ? "AppCompatCache 尚未生成"
+                    : "AppCompatCache 当前仅有 " +
+                        cacheSize.ToString(CultureInfo.InvariantCulture) +
+                        " 字节头部";
+                return CreateSnapshot(
+                    ForensicArtifactKind.ShimCache,
+                    ServiceVisualState.Stopped,
+                    "当前落盘缓存无记录",
+                    cacheDetail + " · 当前采集可能为空，必须正常重启后复检");
+            }
+
             string detail = service.Exists
-                ? "兼容性引擎已启用 · AeLookupSvc 未被禁用 · 重启时落盘"
-                : "兼容性引擎已启用 · 当前系统未提供独立 AeLookupSvc · 重启时落盘";
+                ? "检测到 " + cacheSize.ToString(CultureInfo.InvariantCulture) +
+                    " 字节落盘数据 · AeLookupSvc 未被禁用"
+                : "检测到 " + cacheSize.ToString(CultureInfo.InvariantCulture) +
+                    " 字节落盘数据 · 当前系统使用内置兼容性引擎";
             return CreateSnapshot(
                 ForensicArtifactKind.ShimCache,
                 ServiceVisualState.Running,
-                "记录机制已启用",
+                "落盘数据可用",
                 detail);
         }
 
@@ -403,16 +438,31 @@ namespace UndefinedSS.ServicesPrechecker
                 changed = true;
             }
 
+            int cacheSize;
+            ShimCacheDataState cacheState = InspectShimCacheData(
+                dataSource.ReadMachineValue(
+                    AppCompatCachePath,
+                    AppCompatCacheValueName),
+                out cacheSize);
+            bool cacheNeedsBaseline =
+                cacheState == ShimCacheDataState.Missing ||
+                cacheState == ShimCacheDataState.HeaderOnly;
+            bool cacheValid = cacheState != ShimCacheDataState.Invalid;
+
             return new ForensicArtifactEnableResult
             {
                 Kind = ForensicArtifactKind.ShimCache,
                 DisplayName = GetDisplayName(ForensicArtifactKind.ShimCache),
-                Success = true,
+                Success = cacheValid,
                 ConfigurationChanged = changed,
-                RequiresRestart = changed,
-                Message = changed
-                    ? "兼容性引擎已启用，重启后建立新的落盘周期"
-                    : "兼容性引擎已处于启用状态"
+                RequiresRestart = changed || cacheNeedsBaseline,
+                Message = !cacheValid
+                    ? "兼容性引擎设置已处理，但 AppCompatCache 值格式异常"
+                    : (cacheNeedsBaseline
+                        ? "兼容性引擎已启用；当前落盘缓存无记录，必须重启后建立新基线"
+                        : (changed
+                            ? "兼容性引擎已启用，重启后建立新的落盘周期"
+                            : "兼容性引擎与落盘缓存均已就绪"))
             };
         }
 
@@ -588,6 +638,51 @@ namespace UndefinedSS.ServicesPrechecker
             {
                 return false;
             }
+        }
+
+        private static ShimCacheDataState InspectShimCacheData(
+            object value,
+            out int byteLength)
+        {
+            byteLength = 0;
+            if (value == null)
+            {
+                return ShimCacheDataState.Missing;
+            }
+
+            byte[] bytes = value as byte[];
+            if (bytes == null)
+            {
+                return ShimCacheDataState.Invalid;
+            }
+
+            byteLength = bytes.Length;
+            if (bytes.Length < 4)
+            {
+                return ShimCacheDataState.Invalid;
+            }
+
+            // Windows 10/11 keeps a small binary header even when there are no
+            // persisted entries. Treating that header as a healthy cache caused
+            // the UI to report green while acquisition tools received []. A
+            // payload larger than the modern header proves that persisted data
+            // exists without parsing or exposing individual forensic entries.
+            if (bytes.Length <= MaximumModernShimCacheHeaderLength)
+            {
+                return ShimCacheDataState.HeaderOnly;
+            }
+
+            for (int index = MaximumModernShimCacheHeaderLength;
+                index < bytes.Length;
+                index++)
+            {
+                if (bytes[index] != 0)
+                {
+                    return ShimCacheDataState.HasPayload;
+                }
+            }
+
+            return ShimCacheDataState.HeaderOnly;
         }
 
         private static bool IsValidSid(string value)
@@ -951,6 +1046,14 @@ namespace UndefinedSS.ServicesPrechecker
                 public string StandardOutput { get; set; }
                 public string StandardError { get; set; }
             }
+        }
+
+        private enum ShimCacheDataState
+        {
+            Missing,
+            HeaderOnly,
+            HasPayload,
+            Invalid
         }
     }
 }
