@@ -49,6 +49,55 @@ internal static class ForensicArtifactManagerTests
         AssertEqual(0, disabled.MachineValues[MachineKey("DisableEngine")], "engine policy enabled");
         AssertEqual(3, disabled.Services["AeLookupSvc"].StartType, "AeLookupSvc restored to manual");
 
+        FakeDataSource headerOnly = CreateReadyDataSource();
+        headerOnly.MachineValues[ShimCacheKey()] = new byte[52];
+        ForensicArtifactManager headerOnlyManager =
+            new ForensicArtifactManager(headerOnly);
+        AssertEqual(
+            ServiceVisualState.Stopped,
+            headerOnlyManager.GetSnapshots(UserSid)[0].VisualState,
+            "ShimCache header-only value is not reported as collectible data");
+        ForensicArtifactEnableResult headerOnlyEnable =
+            headerOnlyManager.EnableAll(UserSid)[0];
+        AssertTrue(headerOnlyEnable.Success, "header-only cache keeps valid engine configuration");
+        AssertFalse(headerOnlyEnable.ConfigurationChanged, "header-only cache does not invent a configuration write");
+        AssertTrue(headerOnlyEnable.RequiresRestart, "header-only cache requires a new boot baseline");
+
+        FakeDataSource missing = CreateReadyDataSource();
+        missing.MachineValues.Remove(ShimCacheKey());
+        ForensicArtifactManager missingManager =
+            new ForensicArtifactManager(missing);
+        AssertEqual(
+            ServiceVisualState.Stopped,
+            missingManager.GetSnapshots(UserSid)[0].VisualState,
+            "missing ShimCache value is not reported as healthy");
+        AssertTrue(
+            missingManager.EnableAll(UserSid)[0].RequiresRestart,
+            "missing ShimCache value requires a new boot baseline");
+
+        FakeDataSource persisted = CreateReadyDataSource();
+        byte[] persistedValue = new byte[256];
+        persistedValue[80] = 1;
+        persisted.MachineValues[ShimCacheKey()] = persistedValue;
+        ForensicArtifactSnapshot persistedSnapshot =
+            new ForensicArtifactManager(persisted).GetSnapshots(UserSid)[0];
+        AssertEqual(
+            ServiceVisualState.Running,
+            persistedSnapshot.VisualState,
+            "ShimCache requires persisted payload before reporting healthy");
+
+        FakeDataSource malformed = CreateReadyDataSource();
+        malformed.MachineValues[ShimCacheKey()] = "not binary";
+        ForensicArtifactManager malformedManager =
+            new ForensicArtifactManager(malformed);
+        AssertEqual(
+            ServiceVisualState.Error,
+            malformedManager.GetSnapshots(UserSid)[0].VisualState,
+            "non-binary ShimCache value is reported as invalid");
+        AssertFalse(
+            malformedManager.EnableAll(UserSid)[0].Success,
+            "invalid ShimCache value is not claimed as repaired");
+
         FakeDataSource modern = CreateReadyDataSource();
         modern.Services.Remove("AeLookupSvc");
         ForensicArtifactSnapshot modernSnapshot =
@@ -167,6 +216,9 @@ internal static class ForensicArtifactManagerTests
         source.Services["PcaSvc"] = ReadyService(3);
         source.Services["DiagTrack"] = ReadyService(2);
         source.Services["AeLookupSvc"] = ReadyService(3);
+        byte[] shimCacheValue = new byte[256];
+        shimCacheValue[80] = 1;
+        source.MachineValues[ShimCacheKey()] = shimCacheValue;
         source.Tasks[ForensicArtifactManager.CompatibilityAppraiserTask] =
             ScheduledTaskState.Enabled;
         source.Tasks[ForensicArtifactManager.ProgramDataUpdaterTask] =
@@ -187,6 +239,12 @@ internal static class ForensicArtifactManagerTests
     private static string MachineKey(string valueName)
     {
         return ForensicArtifactManager.AppCompatPolicyPath + "|" + valueName;
+    }
+
+    private static string ShimCacheKey()
+    {
+        return ForensicArtifactManager.AppCompatCachePath + "|" +
+            ForensicArtifactManager.AppCompatCacheValueName;
     }
 
     private static string UserKey(string sid, string valueName)
