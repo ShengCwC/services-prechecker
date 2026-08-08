@@ -13,6 +13,10 @@ internal static class ServiceStatePolicyTests
         TestWrongStartTypeRunningIsNotHealthy();
         TestCorrectRunningIsHealthy();
         TestRestartPolicyTracksActualChangesOnly();
+        TestDisabledServiceIsReconfiguredBeforeStart();
+        TestConfigurationMustBeConfirmedBeforeStart();
+        TestDriverConfigurationWaitsForRestart();
+        TestWindowsServiceConfigurationReadPath();
 
         if (failures != 0)
         {
@@ -85,6 +89,83 @@ internal static class ServiceStatePolicyTests
             "driver restart requirement is preserved");
     }
 
+    private static void TestDisabledServiceIsReconfiguredBeforeStart()
+    {
+        FakeServiceOperations operations = new FakeServiceOperations
+        {
+            StartType = 4,
+            Status = ServiceControllerStatus.Stopped
+        };
+        ServiceDefinition definition = CreateDefinition(2, false);
+
+        EnableResult result = ServiceManager.Enable(definition, operations);
+
+        AssertTrue(result.Success, "disabled service is repaired and started");
+        AssertTrue(result.ConfigurationChanged, "disabled start type is changed");
+        AssertTrue(result.RuntimeStateChanged, "stopped runtime is started");
+        AssertEqual(2, operations.StartType, "desired automatic start type is applied");
+        AssertEqual(
+            "read,configure:2,read,status,start,status",
+            string.Join(",", operations.Calls.ToArray()),
+            "SCM configuration is confirmed before the start request");
+    }
+
+    private static void TestConfigurationMustBeConfirmedBeforeStart()
+    {
+        FakeServiceOperations operations = new FakeServiceOperations
+        {
+            StartType = 4,
+            IgnoreConfigurationChange = true,
+            Status = ServiceControllerStatus.Stopped
+        };
+
+        EnableResult result = ServiceManager.Enable(
+            CreateDefinition(2, false),
+            operations);
+
+        AssertFalse(result.Success, "unconfirmed configuration is not reported successful");
+        AssertFalse(operations.StartWasCalled, "service is not started while SCM still reports disabled");
+        AssertEqual(
+            "read,configure:2,read",
+            string.Join(",", operations.Calls.ToArray()),
+            "configuration verification stops the unsafe flow");
+    }
+
+    private static void TestDriverConfigurationWaitsForRestart()
+    {
+        FakeServiceOperations operations = new FakeServiceOperations
+        {
+            StartType = 4,
+            Status = ServiceControllerStatus.Stopped
+        };
+
+        EnableResult result = ServiceManager.Enable(
+            CreateDefinition(1, true),
+            operations);
+
+        AssertTrue(result.Success, "driver start type repair succeeds");
+        AssertTrue(result.RequiresRestart, "boot driver waits for restart");
+        AssertFalse(operations.StartWasCalled, "boot driver is not force-started in the current boot");
+        AssertEqual(1, operations.StartType, "driver receives its required system start type");
+    }
+
+    private static void TestWindowsServiceConfigurationReadPath()
+    {
+        WindowsServiceOperations operations = new WindowsServiceOperations();
+        int? eventLogStartType = operations.ReadStartType("EventLog");
+
+        AssertTrue(eventLogStartType.HasValue, "Windows Event Log configuration is readable from SCM");
+        AssertTrue(
+            eventLogStartType.HasValue &&
+            eventLogStartType.Value >= 0 &&
+            eventLogStartType.Value <= 4,
+            "SCM returns a valid Windows start type");
+        AssertEqual(
+            null,
+            operations.ReadStartType("UndefinedSS_Missing_Service_For_Test"),
+            "missing SCM service returns no configuration");
+    }
+
     private static ServiceSnapshot CreateSnapshot(int desiredStartType)
     {
         return new ServiceSnapshot
@@ -97,6 +178,58 @@ internal static class ServiceStatePolicyTests
                 false),
             Detail = string.Empty
         };
+    }
+
+    private static ServiceDefinition CreateDefinition(int desiredStartType, bool isDriver)
+    {
+        return new ServiceDefinition(
+            "Test",
+            "TestService",
+            "Test service",
+            desiredStartType,
+            isDriver);
+    }
+
+    private sealed class FakeServiceOperations : IServiceOperations
+    {
+        internal FakeServiceOperations()
+        {
+            Calls = new List<string>();
+        }
+
+        internal int? StartType { get; set; }
+        internal ServiceControllerStatus Status { get; set; }
+        internal bool IgnoreConfigurationChange { get; set; }
+        internal bool StartWasCalled { get; private set; }
+        internal List<string> Calls { get; private set; }
+
+        public int? ReadStartType(string serviceName)
+        {
+            Calls.Add("read");
+            return StartType;
+        }
+
+        public void ChangeStartType(string serviceName, int startType)
+        {
+            Calls.Add("configure:" + startType);
+            if (!IgnoreConfigurationChange)
+            {
+                StartType = startType;
+            }
+        }
+
+        public ServiceControllerStatus GetStatus(string serviceName)
+        {
+            Calls.Add("status");
+            return Status;
+        }
+
+        public void StartAndWaitForRunning(string serviceName, TimeSpan timeout)
+        {
+            Calls.Add("start");
+            StartWasCalled = true;
+            Status = ServiceControllerStatus.Running;
+        }
     }
 
     private static void AssertTrue(bool condition, string name)

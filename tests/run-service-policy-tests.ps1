@@ -20,6 +20,7 @@ $arguments = @(
     "/reference:$(Join-Path $frameworkDirectory 'System.Core.dll')",
     "/reference:$(Join-Path $frameworkDirectory 'System.ServiceProcess.dll')",
     (Join-Path $projectRoot "src\ServicesPrechecker\ServiceModels.cs"),
+    (Join-Path $projectRoot "src\ServicesPrechecker\ServiceControlOperations.cs"),
     (Join-Path $projectRoot "src\ServicesPrechecker\ServiceManager.cs"),
     (Join-Path $PSScriptRoot "ServiceStatePolicyTests.cs")
 )
