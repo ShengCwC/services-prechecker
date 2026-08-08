@@ -1,4 +1,3 @@
-using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -10,7 +9,8 @@ namespace UndefinedSS.ServicesPrechecker
 {
     internal static class ServiceManager
     {
-        private const string ServicesRegistryPath = @"SYSTEM\CurrentControlSet\Services\";
+        private static readonly IServiceOperations Operations =
+            new WindowsServiceOperations();
 
         public static bool IsAdministrator()
         {
@@ -39,7 +39,7 @@ namespace UndefinedSS.ServicesPrechecker
             int? startType;
             try
             {
-                startType = ReadStartType(definition.ServiceName);
+                startType = Operations.ReadStartType(definition.ServiceName);
             }
             catch (Exception exception)
             {
@@ -163,7 +163,7 @@ namespace UndefinedSS.ServicesPrechecker
             List<EnableResult> results = new List<EnableResult>();
             foreach (ServiceDefinition definition in ServiceCatalog.All)
             {
-                results.Add(Enable(definition));
+                results.Add(Enable(definition, Operations));
             }
 
             return results;
@@ -185,32 +185,49 @@ namespace UndefinedSS.ServicesPrechecker
             return true;
         }
 
-        private static EnableResult Enable(ServiceDefinition definition)
+        internal static EnableResult Enable(
+            ServiceDefinition definition,
+            IServiceOperations operations)
         {
+            if (definition == null)
+            {
+                throw new ArgumentNullException("definition");
+            }
+
+            if (operations == null)
+            {
+                throw new ArgumentNullException("operations");
+            }
+
             EnableResult result = new EnableResult();
             result.Definition = definition;
 
-            RegistryKey key = null;
+            int? currentStart;
             try
             {
-                key = Registry.LocalMachine.OpenSubKey(
-                    ServicesRegistryPath + definition.ServiceName,
-                    RegistryKeyPermissionCheck.ReadWriteSubTree);
-
-                if (key == null)
+                currentStart = operations.ReadStartType(definition.ServiceName);
+                if (!currentStart.HasValue)
                 {
                     result.Success = false;
                     result.Message = "当前系统未找到此服务";
                     return result;
                 }
 
-                object currentValue = key.GetValue("Start");
-                int currentStart = currentValue == null ? -1 : Convert.ToInt32(currentValue);
-                if (currentStart != definition.DesiredStartType)
+                if (currentStart.Value != definition.DesiredStartType)
                 {
-                    key.SetValue("Start", definition.DesiredStartType, RegistryValueKind.DWord);
-                    key.Flush();
+                    operations.ChangeStartType(
+                        definition.ServiceName,
+                        definition.DesiredStartType);
                     result.ConfigurationChanged = true;
+
+                    int? confirmedStart = operations.ReadStartType(definition.ServiceName);
+                    if (!confirmedStart.HasValue ||
+                        confirmedStart.Value != definition.DesiredStartType)
+                    {
+                        result.Success = false;
+                        result.Message = "启动方式修改后未通过系统确认";
+                        return result;
+                    }
                 }
             }
             catch (Exception exception)
@@ -219,32 +236,46 @@ namespace UndefinedSS.ServicesPrechecker
                 result.Message = "无法修改启动方式：" + GetUsefulError(exception);
                 return result;
             }
-            finally
-            {
-                if (key != null)
-                {
-                    key.Dispose();
-                }
-            }
 
             try
             {
-                using (ServiceController controller = new ServiceController(definition.ServiceName))
-                {
-                    controller.Refresh();
-                    bool wasRunning = controller.Status == ServiceControllerStatus.Running;
-                    if (!wasRunning)
-                    {
-                        controller.Start();
-                        result.RuntimeStateChanged = true;
-                        controller.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(12));
-                    }
+                ServiceControllerStatus initialStatus =
+                    operations.GetStatus(definition.ServiceName);
 
-                    controller.Refresh();
-                    result.Success = controller.Status == ServiceControllerStatus.Running;
-                    result.Message = result.Success ? "已启用并正在运行" : "已启用，但尚未运行";
+                if (definition.IsDriver)
+                {
+                    result.Success = true;
+                    result.RequiresRestart =
+                        initialStatus != ServiceControllerStatus.Running;
+                    result.Message = result.RequiresRestart
+                        ? "已启用，重启 Windows 后生效"
+                        : "已启用并正在运行";
                     return result;
                 }
+
+                if (initialStatus != ServiceControllerStatus.Running)
+                {
+                    result.RuntimeStateChanged = true;
+                    operations.StartAndWaitForRunning(
+                        definition.ServiceName,
+                        TimeSpan.FromSeconds(20));
+                }
+
+                ServiceControllerStatus finalStatus =
+                    operations.GetStatus(definition.ServiceName);
+                result.Success = finalStatus == ServiceControllerStatus.Running;
+                if (result.Success)
+                {
+                    result.Message = result.ConfigurationChanged
+                        ? "启动方式已修复，服务正在运行"
+                        : "已启用并正在运行";
+                }
+                else
+                {
+                    result.Message = "启动请求已完成，但服务未进入运行状态";
+                }
+
+                return result;
             }
             catch (Exception exception)
             {
@@ -257,29 +288,19 @@ namespace UndefinedSS.ServicesPrechecker
                 else
                 {
                     result.Success = false;
-                    result.Message = "启动失败：" + GetUsefulError(exception);
+                    if (result.ConfigurationChanged)
+                    {
+                        result.Message =
+                            "启动方式已修复，但服务启动失败：" +
+                            GetUsefulError(exception);
+                    }
+                    else
+                    {
+                        result.Message = "启动失败：" + GetUsefulError(exception);
+                    }
                 }
 
                 return result;
-            }
-        }
-
-        private static int? ReadStartType(string serviceName)
-        {
-            using (RegistryKey key = Registry.LocalMachine.OpenSubKey(ServicesRegistryPath + serviceName))
-            {
-                if (key == null)
-                {
-                    return null;
-                }
-
-                object value = key.GetValue("Start");
-                if (value == null)
-                {
-                    return null;
-                }
-
-                return Convert.ToInt32(value);
             }
         }
 
